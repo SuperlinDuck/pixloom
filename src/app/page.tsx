@@ -1,5 +1,34 @@
-const productImageMenus = ["商品主图", "卖点图", "详情页图"]
-const sceneImageMenus = ["人物模特", "宠物模特", "模特局部生成", "替换背景"]
+import {
+  NavigationMenu,
+  NavigationMenuContent,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+  NavigationMenuTrigger,
+} from "@/components/ui/navigation-menu"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Zap, Image, Sparkles, FileText, User, Dog, Wand2, Palette, Scissors, ImagePlus, Stamp } from "lucide-react"
+
+const productImageMenus = [
+  { name: "商品主图", icon: Image },
+  { name: "卖点图", icon: Sparkles },
+  { name: "详情页图", icon: FileText },
+]
+
+const sceneImageMenus = [
+  { name: "人物模特", icon: User },
+  { name: "宠物模特", icon: Dog },
+  { name: "模特局部生成", icon: Wand2 },
+  { name: "替换背景", icon: Palette },
+]
+
+const imageToolMenus = [
+  { name: "一键抠图", icon: Scissors },
+  { name: "参考图生成", icon: ImagePlus },
+  { name: "Logo生成", icon: Stamp },
+]
 
 const featureCards = [
   {
@@ -18,95 +47,155 @@ const featureCards = [
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-slate-100">
-      <header className="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur">
+    <main className="min-h-screen bg-background">
+      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
           <a href="#home" className="flex items-center gap-2">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-sky-500 text-sm font-bold text-white">
-              FL
-            </span>
-            <span className="text-lg font-semibold tracking-tight text-slate-100">FlashLoom</span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Zap className="h-5 w-5" />
+            </div>
+            <span className="text-lg font-semibold tracking-tight">FlashLoom</span>
           </a>
 
-          <nav className="hidden items-center gap-1 md:flex">
-            <a
-              href="#home"
-              className="rounded-md px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
-            >
-              首页
-            </a>
+          <NavigationMenu className="hidden md:flex">
+            <NavigationMenuList>
+              <NavigationMenuItem>
+                <NavigationMenuLink
+                  href="#home"
+                  className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
+                >
+                  首页
+                </NavigationMenuLink>
+              </NavigationMenuItem>
 
-            <div className="group relative">
-              <button className="rounded-md px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800">
-                商品图生成
-              </button>
-              <div className="invisible absolute left-0 top-full mt-2 w-40 rounded-lg border border-slate-700 bg-slate-900 p-2 opacity-0 shadow-xl shadow-slate-950/40 transition group-hover:visible group-hover:opacity-100">
-                {productImageMenus.map((item) => (
-                  <a
-                    key={item}
-                    href="#features"
-                    className="block rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
-                  >
-                    {item}
-                  </a>
-                ))}
-              </div>
-            </div>
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>
+                  商品图生成
+                </NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <ul className="grid grid-cols-3 gap-2 p-4 w-[480px]">
+                    {productImageMenus.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <li key={item.name}>
+                          <NavigationMenuLink asChild>
+                            <a
+                              href="#features"
+                              className="flex flex-col items-center gap-2 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                            >
+                              <Icon className="h-6 w-6" />
+                              <span className="text-sm font-medium">{item.name}</span>
+                            </a>
+                          </NavigationMenuLink>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
 
-            <div className="group relative">
-              <button className="rounded-md px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800">
-                场景图生成
-              </button>
-              <div className="invisible absolute left-0 top-full mt-2 w-44 rounded-lg border border-slate-700 bg-slate-900 p-2 opacity-0 shadow-xl shadow-slate-950/40 transition group-hover:visible group-hover:opacity-100">
-                {sceneImageMenus.map((item) => (
-                  <a
-                    key={item}
-                    href="#features"
-                    className="block rounded-md px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white"
-                  >
-                    {item}
-                  </a>
-                ))}
-              </div>
-            </div>
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>
+                  场景图生成
+                </NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <ul className="grid grid-cols-3 gap-2 p-4 w-[480px]">
+                    {sceneImageMenus.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <li key={item.name}>
+                          <NavigationMenuLink asChild>
+                            <a
+                              href="#features"
+                              className="flex flex-col items-center gap-2 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                            >
+                              <Icon className="h-6 w-6" />
+                              <span className="text-sm font-medium">{item.name}</span>
+                            </a>
+                          </NavigationMenuLink>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
 
-            <a
-              href="#pricing"
-              className="rounded-md px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
-            >
-              定价
-            </a>
-          </nav>
+              <NavigationMenuItem>
+                <NavigationMenuTrigger>
+                  图片工具
+                </NavigationMenuTrigger>
+                <NavigationMenuContent>
+                  <ul className="grid grid-cols-3 gap-2 p-4 w-[480px]">
+                    {imageToolMenus.map((item) => {
+                      const Icon = item.icon
+                      return (
+                        <li key={item.name}>
+                          <NavigationMenuLink asChild>
+                            <a
+                              href="#features"
+                              className="flex flex-col items-center gap-2 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                            >
+                              <Icon className="h-6 w-6" />
+                              <span className="text-sm font-medium">{item.name}</span>
+                            </a>
+                          </NavigationMenuLink>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </NavigationMenuContent>
+              </NavigationMenuItem>
+
+              <NavigationMenuItem>
+                <NavigationMenuLink
+                  href="#pricing"
+                  className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
+                >
+                  定价
+                </NavigationMenuLink>
+              </NavigationMenuItem>
+            </NavigationMenuList>
+          </NavigationMenu>
         </div>
 
-        <div className="border-t border-slate-800 px-4 py-3 md:hidden sm:px-6">
+        <div className="border-t px-4 py-3 md:hidden sm:px-6">
           <details>
-            <summary className="cursor-pointer list-none text-sm font-semibold text-slate-200">导航菜单</summary>
-            <div className="mt-3 space-y-3 text-sm text-slate-300">
-              <a href="#home" className="block rounded-md px-2 py-1 hover:bg-slate-800">
+            <summary className="cursor-pointer list-none text-sm font-semibold">导航菜单</summary>
+            <div className="mt-3 space-y-3 text-sm">
+              <a href="#home" className="block rounded-md px-2 py-1 hover:bg-accent">
                 首页
               </a>
               <details>
-                <summary className="cursor-pointer rounded-md px-2 py-1 hover:bg-slate-800">商品图生成</summary>
+                <summary className="cursor-pointer rounded-md px-2 py-1 hover:bg-accent">商品图生成</summary>
                 <div className="mt-1 space-y-1 pl-4">
                   {productImageMenus.map((item) => (
-                    <a key={item} href="#features" className="block rounded-md px-2 py-1 hover:bg-slate-800">
-                      {item}
+                    <a key={item.name} href="#features" className="block rounded-md px-2 py-1 hover:bg-accent">
+                      {item.name}
                     </a>
                   ))}
                 </div>
               </details>
               <details>
-                <summary className="cursor-pointer rounded-md px-2 py-1 hover:bg-slate-800">场景图生成</summary>
+                <summary className="cursor-pointer rounded-md px-2 py-1 hover:bg-accent">场景图生成</summary>
                 <div className="mt-1 space-y-1 pl-4">
                   {sceneImageMenus.map((item) => (
-                    <a key={item} href="#features" className="block rounded-md px-2 py-1 hover:bg-slate-800">
-                      {item}
+                    <a key={item.name} href="#features" className="block rounded-md px-2 py-1 hover:bg-accent">
+                      {item.name}
                     </a>
                   ))}
                 </div>
               </details>
-              <a href="#pricing" className="block rounded-md px-2 py-1 hover:bg-slate-800">
+              <details>
+                <summary className="cursor-pointer rounded-md px-2 py-1 hover:bg-accent">图片工具</summary>
+                <div className="mt-1 space-y-1 pl-4">
+                  {imageToolMenus.map((item) => (
+                    <a key={item.name} href="#features" className="block rounded-md px-2 py-1 hover:bg-accent">
+                      {item.name}
+                    </a>
+                  ))}
+                </div>
+              </details>
+              <a href="#pricing" className="block rounded-md px-2 py-1 hover:bg-accent">
                 定价
               </a>
             </div>
@@ -116,61 +205,59 @@ export default function Home() {
 
       <section id="home" className="mx-auto w-full max-w-6xl px-4 pb-16 pt-20 sm:px-6">
         <div className="max-w-3xl">
-          <p className="mb-3 inline-flex rounded-full border border-sky-400/30 bg-sky-400/10 px-3 py-1 text-xs font-semibold tracking-wide text-sky-300">
+          <Badge variant="secondary" className="mb-4">
             AI 电商视觉生产平台
-          </p>
-          <h1 className="text-4xl font-bold leading-tight sm:text-5xl">
+          </Badge>
+          <h1 className="text-4xl font-bold leading-tight tracking-tighter sm:text-5xl md:text-6xl lg:text-7xl">
             一站式生成商品主图、场景图与详情页素材
           </h1>
-          <p className="mt-5 text-lg leading-8 text-slate-300">
+          <p className="mt-6 text-lg text-muted-foreground sm:text-xl">
             FlashLoom 通过智能生成与编辑能力，让品牌和商家在几分钟内产出高质量商品视觉内容，快速完成上新与投放。
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
-            <a
-              href="#features"
-              className="rounded-lg bg-sky-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-sky-400"
-            >
-              立即体验
-            </a>
-            <a
-              href="#pricing"
-              className="rounded-lg border border-slate-700 bg-slate-900 px-5 py-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
-            >
-              查看定价
-            </a>
+          <div className="mt-8 flex flex-wrap gap-4">
+            <Button size="lg" asChild>
+              <a href="#features">立即体验</a>
+            </Button>
+            <Button size="lg" variant="outline" asChild>
+              <a href="#pricing">查看定价</a>
+            </Button>
           </div>
         </div>
       </section>
 
-      <section id="features" className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold sm:text-3xl">产品介绍</h2>
-          <p className="mt-3 text-slate-300">覆盖商品内容生成全流程，让视觉素材创作更快、更稳、更具商业转化力。</p>
+      <section id="features" className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6">
+        <div className="mb-12 text-center">
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">产品介绍</h2>
+          <p className="mt-4 text-lg text-muted-foreground">覆盖商品内容生成全流程，让视觉素材创作更快、更稳、更具商业转化力。</p>
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-3">
           {featureCards.map((card) => (
-            <article
-              key={card.title}
-              className="rounded-xl border border-slate-700 bg-slate-900/70 p-5 shadow-md shadow-slate-950/30"
-            >
-              <h3 className="text-lg font-semibold">{card.title}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-300">{card.description}</p>
-            </article>
+            <Card key={card.title}>
+              <CardHeader>
+                <CardTitle>{card.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CardDescription className="text-base">{card.description}</CardDescription>
+              </CardContent>
+            </Card>
           ))}
         </div>
       </section>
 
       <section id="pricing" className="mx-auto w-full max-w-6xl px-4 pb-20 pt-8 sm:px-6">
-        <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-8 shadow-xl shadow-slate-950/30">
-          <h2 className="text-2xl font-bold">定价</h2>
-          <p className="mt-2 text-slate-300">提供灵活套餐，支持按量付费与企业定制。可根据团队规模与出图需求自由扩展。</p>
-          <a
-            href="#home"
-            className="mt-5 inline-flex rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400"
-          >
-            联系销售
-          </a>
-        </div>
+        <Card className="p-8">
+          <CardHeader>
+            <CardTitle className="text-3xl">定价</CardTitle>
+            <CardDescription className="text-base">
+              提供灵活套餐，支持按量付费与企业定制。可根据团队规模与出图需求自由扩展。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <a href="#home">联系销售</a>
+            </Button>
+          </CardContent>
+        </Card>
       </section>
     </main>
   )
