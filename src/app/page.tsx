@@ -12,9 +12,9 @@ import { Badge } from "@/components/ui/badge"
 import { Zap, Image, Sparkles, FileText, User, Dog, Wand2, Palette, Scissors, ImagePlus, Stamp } from "lucide-react"
 
 const productImageMenus = [
-  { name: "商品主图", icon: Image },
-  { name: "卖点图", icon: Sparkles },
-  { name: "详情页图", icon: FileText },
+  { name: "商品主图", icon: Image, href: "/generator" },
+  { name: "卖点图", icon: Sparkles, href: "#features" },
+  { name: "详情页图", icon: FileText, href: "#features" },
 ]
 
 const sceneImageMenus = [
@@ -80,7 +80,7 @@ export default function Home() {
                         <li key={item.name}>
                           <NavigationMenuLink asChild>
                             <a
-                              href="#features"
+                              href={item.href}
                               className="flex flex-col items-center gap-2 select-none rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
                             >
                               <Icon className="h-6 w-6" />
@@ -169,7 +169,7 @@ export default function Home() {
                 <summary className="cursor-pointer rounded-md px-2 py-1 hover:bg-accent">商品图生成</summary>
                 <div className="mt-1 space-y-1 pl-4">
                   {productImageMenus.map((item) => (
-                    <a key={item.name} href="#features" className="block rounded-md px-2 py-1 hover:bg-accent">
+                    <a key={item.name} href={item.href} className="block rounded-md px-2 py-1 hover:bg-accent">
                       {item.name}
                     </a>
                   ))}
@@ -216,7 +216,7 @@ export default function Home() {
           </p>
           <div className="mt-8 flex flex-wrap gap-4">
             <Button size="lg" asChild>
-              <a href="#features">立即体验</a>
+              <a href="/generator">立即体验</a>
             </Button>
             <Button size="lg" variant="outline" asChild>
               <a href="#pricing">查看定价</a>
