@@ -1,5 +1,4 @@
 const DEFAULT_MODEL = "gemini-2.0-flash-preview-image-generation"
-const DEFAULT_LOCATION = process.env.VERTEX_AI_LOCATION || "global"
 
 type VertexInlineData = {
   mimeType: string
@@ -20,6 +19,8 @@ type VertexCandidate = {
 interface VertexResponse {
   candidates?: VertexCandidate[]
 }
+
+type StreamChunk = VertexResponse
 
 export interface ProductImageRequest {
   prompt: string
@@ -56,17 +57,51 @@ function extractImageBase64(payload: VertexResponse) {
   return part?.inlineData?.data
 }
 
-export async function generateProductImage(input: ProductImageRequest): Promise<ProductImageResult> {
-  const apiKey = process.env.VERTEX_AI_API_KEY
-  const projectId = process.env.VERTEX_AI_PROJECT_ID
-  const model = process.env.VERTEX_AI_IMAGE_MODEL || DEFAULT_MODEL
+async function parseStreamResponse(response: Response) {
+  const text = await response.text()
 
-  if (!apiKey || !projectId) {
-    throw new Error("缺少 Vertex AI 配置，请设置 VERTEX_AI_API_KEY 和 VERTEX_AI_PROJECT_ID")
+  let chunks: StreamChunk[] = []
+  try {
+    const parsed = JSON.parse(text)
+    chunks = Array.isArray(parsed) ? parsed : [parsed]
+  } catch {
+    const lines = text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    chunks = lines
+      .map((line) => {
+        try {
+          return JSON.parse(line) as StreamChunk
+        } catch {
+          return null
+        }
+      })
+      .filter((chunk): chunk is StreamChunk => chunk !== null)
   }
 
+  for (const chunk of chunks) {
+    const imageBase64 = extractImageBase64(chunk)
+    if (imageBase64) {
+      return imageBase64
+    }
+  }
+
+  throw new Error(`Gemini 未返回图片数据: ${text}`)
+}
+
+export async function generateProductImage(input: ProductImageRequest): Promise<ProductImageResult> {
+  const apiKey = process.env.VERTEX_AI_API_KEY
+  const model = process.env.VERTEX_AI_IMAGE_MODEL || DEFAULT_MODEL
+
+  if (!apiKey) {
+    throw new Error("缺少 Vertex AI 配置，请设置 VERTEX_AI_API_KEY")
+  }
+
+
   const finalPrompt = buildPrompt(input)
-  const endpoint = `https://${DEFAULT_LOCATION}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${DEFAULT_LOCATION}/publishers/google/models/${model}:generateContent?key=${apiKey}`
+  const endpoint = `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:streamGenerateContent?key=${apiKey}`
 
   const response = await fetch(endpoint, {
     method: "POST",
@@ -91,12 +126,7 @@ export async function generateProductImage(input: ProductImageRequest): Promise<
     throw new Error(`Vertex AI 调用失败: ${errorText}`)
   }
 
-  const payload = (await response.json()) as VertexResponse
-  const imageBase64 = extractImageBase64(payload)
-
-  if (!imageBase64) {
-    throw new Error("Gemini 未返回图片数据")
-  }
+  const imageBase64 = await parseStreamResponse(response)
 
   return {
     prompt: finalPrompt,
