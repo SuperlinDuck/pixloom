@@ -9,6 +9,7 @@ import {
   NavigationMenuTrigger,
 } from "@/components/ui/navigation-menu"
 import { Zap, Image, Sparkles, FileText, User, Dog, Wand2, Palette, Scissors, ImagePlus, Stamp } from "lucide-react"
+import { UserButton } from "@/components/auth/user-button"
 
 const productImageMenus = [
   { name: "商品主图", icon: Image, href: "/generator" },
@@ -139,6 +140,8 @@ export function Navbar() {
             </NavigationMenuItem>
           </NavigationMenuList>
         </NavigationMenu>
+
+        <UserButton />
       </div>
 
       <div className="border-t px-4 py-3 md:hidden sm:px-6">
