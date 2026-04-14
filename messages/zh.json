@@ -1,0 +1,98 @@
+{
+  "common": {
+    "home": "首页",
+    "pricing": "定价",
+    "navigation": "导航菜单",
+    "contactSales": "联系销售",
+    "tryNow": "立即体验",
+    "viewPricing": "查看定价"
+  },
+  "auth": {
+    "login": "登录",
+    "logout": "退出登录",
+    "userAvatar": "用户头像"
+  },
+  "nav": {
+    "productImage": "商品图生成",
+    "sceneImage": "场景图生成",
+    "imageTools": "图片工具"
+  },
+  "productImageMenus": {
+    "mainImage": "商品主图",
+    "sellingPoints": "卖点图",
+    "detailPage": "详情页图"
+  },
+  "sceneImageMenus": {
+    "humanModel": "人物模特",
+    "petModel": "宠物模特",
+    "partialGeneration": "模特局部生成",
+    "replaceBackground": "替换背景"
+  },
+  "imageToolMenus": {
+    "removeBackground": "一键抠图",
+    "referenceGeneration": "参考图生成",
+    "logoGeneration": "Logo生成"
+  },
+  "hero": {
+    "badge": "AI 电商视觉生产平台",
+    "title": "一站式生成商品主图、场景图与详情页素材",
+    "description": "FlashLoom 通过智能生成与编辑能力，让品牌和商家在几分钟内产出高质量商品视觉内容，快速完成上新与投放。"
+  },
+  "features": {
+    "title": "产品介绍",
+    "description": "覆盖商品内容生成全流程，让视觉素材创作更快、更稳、更具商业转化力。",
+    "productImage": {
+      "title": "商品图生成",
+      "description": "输入商品信息，快速生成主图、卖点图和详情页图，覆盖完整电商素材链路。"
+    },
+    "sceneImage": {
+      "title": "场景图生成",
+      "description": "支持人物模特、宠物模特、局部重绘与背景替换，轻松打造高质感营销视觉。"
+    },
+    "collaboration": {
+      "title": "高效协作",
+      "description": "统一素材管理与版本留存，支持团队快速迭代，提升上新效率。"
+    }
+  },
+  "pricing": {
+    "title": "定价",
+    "description": "提供灵活套餐，支持按量付费与企业定制。可根据团队规模与出图需求自由扩展。"
+  },
+  "generator": {
+    "badge": "Gemini / Vertex AI",
+    "title": "商品图生成工作台",
+    "description": "初版先支持商品主图生成：填写商品信息、选择电商平台与视觉风格，调用 Vertex AI 上的 Gemini 图片生成模型返回预览图。",
+    "form": {
+      "title": "商品图生成初版",
+      "description": "基于 Gemini 图片生成模型，先完成商品主图的 Prompt 填写、参数选择与结果预览闭环。",
+      "productName": "商品名称",
+      "productNamePlaceholder": "例如：316 不锈钢保温杯",
+      "prompt": "商品描述 / Prompt",
+      "promptPlaceholder": "例如：生成一张适合淘宝主图的高级棚拍商品图，突出保温杯金属质感和大容量卖点",
+      "highlights": "核心卖点",
+      "highlightsPlaceholder": "可填写 2-4 条卖点，用分号或换行分隔",
+      "style": "视觉风格",
+      "platform": "目标平台",
+      "aspectRatio": "图片比例",
+      "generating": "生成中...",
+      "generate": "立即生成商品图",
+      "generateFailed": "生成失败"
+    },
+    "styles": {
+      "studioShot": "高级棚拍",
+      "minimalist": "极简电商",
+      "lifestyle": "自然生活方式"
+    },
+    "result": {
+      "title": "生成结果预览",
+      "description": "当前先展示 Gemini 返回的首张图片与最终拼接 Prompt。",
+      "finalPrompt": "最终 Prompt",
+      "model": "模型",
+      "placeholder": "提交表单后，这里会展示生成图片、最终 Prompt 和模型信息。"
+    }
+  },
+  "metadata": {
+    "title": "FlashLoom - AI 商品图生成平台",
+    "description": "通过 AI 技术为电商卖家快速生成高质量的商品展示图"
+  }
+}

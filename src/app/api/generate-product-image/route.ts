@@ -6,7 +6,7 @@ import { generateProductImage } from "@/lib/ai/gemini-image"
 const requestSchema = z.object({
   prompt: z.string().min(1),
   style: z.string().default("高级棚拍"),
-  platform: z.string().default("淘宝"),
+  platform: z.string().default("Amazon"),
   aspectRatio: z.string().default("1:1"),
   productName: z.string().optional(),
   highlights: z.string().optional(),

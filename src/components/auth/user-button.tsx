@@ -1,10 +1,12 @@
 "use client"
 
 import { signIn, signOut, useSession } from "next-auth/react"
+import { useTranslations } from "next-intl"
 import { LogIn, LogOut, User } from "lucide-react"
 
 export function UserButton() {
   const { data: session, status } = useSession()
+  const t = useTranslations("auth")
 
   if (status === "loading") {
     return (
@@ -19,7 +21,7 @@ export function UserButton() {
         className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
       >
         <LogIn className="h-4 w-4" />
-        登录
+        {t("login")}
       </button>
     )
   }
@@ -30,7 +32,7 @@ export function UserButton() {
         {session.user?.image ? (
           <img
             src={session.user.image}
-            alt={session.user.name || "用户头像"}
+            alt={session.user.name || t("userAvatar")}
             className="h-8 w-8 rounded-full"
           />
         ) : (
@@ -45,7 +47,7 @@ export function UserButton() {
       <button
         onClick={() => signOut()}
         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-        title="退出登录"
+        title={t("logout")}
       >
         <LogOut className="h-4 w-4" />
       </button>

@@ -6,6 +6,7 @@ export default function GeneratorPage() {
   return (
     <main className="min-h-screen bg-background">
       <Navbar />
+      111112222
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-16 sm:px-6">
         <div className="max-w-3xl">
           <Badge variant="secondary" className="mb-4">

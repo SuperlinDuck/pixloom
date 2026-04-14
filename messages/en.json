@@ -1,0 +1,98 @@
+{
+  "common": {
+    "home": "Home",
+    "pricing": "Pricing",
+    "navigation": "Navigation",
+    "contactSales": "Contact Sales",
+    "tryNow": "Try Now",
+    "viewPricing": "View Pricing"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "userAvatar": "User Avatar"
+  },
+  "nav": {
+    "productImage": "Product Images",
+    "sceneImage": "Scene Images",
+    "imageTools": "Image Tools"
+  },
+  "productImageMenus": {
+    "mainImage": "Main Image",
+    "sellingPoints": "Selling Points",
+    "detailPage": "Detail Page"
+  },
+  "sceneImageMenus": {
+    "humanModel": "Human Model",
+    "petModel": "Pet Model",
+    "partialGeneration": "Partial Generation",
+    "replaceBackground": "Replace Background"
+  },
+  "imageToolMenus": {
+    "removeBackground": "Remove Background",
+    "referenceGeneration": "Reference Generation",
+    "logoGeneration": "Logo Generation"
+  },
+  "hero": {
+    "badge": "AI E-commerce Visual Platform",
+    "title": "Generate Product Images, Scene Photos & Detail Pages in One Place",
+    "description": "FlashLoom empowers brands and merchants to produce high-quality product visuals in minutes through intelligent generation and editing capabilities."
+  },
+  "features": {
+    "title": "Features",
+    "description": "Cover the entire product content generation workflow, making visual creation faster, more stable, and more commercially effective.",
+    "productImage": {
+      "title": "Product Image Generation",
+      "description": "Input product information to quickly generate main images, selling point images, and detail page images, covering the complete e-commerce asset pipeline."
+    },
+    "sceneImage": {
+      "title": "Scene Image Generation",
+      "description": "Support human models, pet models, partial inpainting, and background replacement to easily create high-quality marketing visuals."
+    },
+    "collaboration": {
+      "title": "Efficient Collaboration",
+      "description": "Unified asset management and version control, supporting rapid team iteration and improving product launch efficiency."
+    }
+  },
+  "pricing": {
+    "title": "Pricing",
+    "description": "Flexible plans with pay-as-you-go and enterprise customization options. Scale freely based on team size and image generation needs."
+  },
+  "generator": {
+    "badge": "Gemini / Vertex AI",
+    "title": "Product Image Generator",
+    "description": "Initial version supports main product image generation: fill in product information, select e-commerce platform and visual style, call Gemini image generation model on Vertex AI to return preview images.",
+    "form": {
+      "title": "Product Image Generator v1",
+      "description": "Based on Gemini image generation model, complete the prompt filling, parameter selection, and result preview workflow for product main images.",
+      "productName": "Product Name",
+      "productNamePlaceholder": "e.g., 316 Stainless Steel Thermos",
+      "prompt": "Product Description / Prompt",
+      "promptPlaceholder": "e.g., Generate a premium studio shot product image for Taobao main image, highlighting the metallic texture and large capacity",
+      "highlights": "Key Selling Points",
+      "highlightsPlaceholder": "Enter 2-4 selling points, separated by semicolons or line breaks",
+      "style": "Visual Style",
+      "platform": "Target Platform",
+      "aspectRatio": "Aspect Ratio",
+      "generating": "Generating...",
+      "generate": "Generate Product Image",
+      "generateFailed": "Generation failed"
+    },
+    "styles": {
+      "studioShot": "Premium Studio",
+      "minimalist": "Minimalist E-commerce",
+      "lifestyle": "Natural Lifestyle"
+    },
+    "result": {
+      "title": "Result Preview",
+      "description": "Currently showing the first image returned by Gemini and the final concatenated prompt.",
+      "finalPrompt": "Final Prompt",
+      "model": "Model",
+      "placeholder": "After submitting the form, the generated image, final prompt, and model information will be displayed here."
+    }
+  },
+  "metadata": {
+    "title": "FlashLoom - AI Product Image Generation Platform",
+    "description": "Quickly generate high-quality product display images for e-commerce sellers using AI technology"
+  }
+}
