@@ -21,7 +21,7 @@ mongosh
 
 **连接字符串:**
 ```env
-DATABASE_URL="mongodb://localhost:27017/flashloom"
+DATABASE_URL="mongodb://localhost:27017/pixloom"
 ```
 
 ### 选项 2: MongoDB Atlas (推荐)
@@ -52,20 +52,20 @@ MongoDB Atlas 是官方的云数据库服务，提供免费套餐。
 
 **连接字符串示例:**
 ```env
-DATABASE_URL="mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/flashloom?retryWrites=true&w=majority"
+DATABASE_URL="mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/pixloom?retryWrites=true&w=majority"
 ```
 
 ### 选项 3: Docker
 
 ```bash
 # 运行 MongoDB 容器
-docker run --name flashloom-mongo \
+docker run --name pixloom-mongo \
   -p 27017:27017 \
-  -e MONGO_INITDB_DATABASE=flashloom \
+  -e MONGO_INITDB_DATABASE=pixloom \
   -d mongo:7.0
 
 # 连接字符串
-DATABASE_URL="mongodb://localhost:27017/flashloom"
+DATABASE_URL="mongodb://localhost:27017/pixloom"
 ```
 
 ## 🔧 配置项目
@@ -82,9 +82,9 @@ nano .env
 
 在 `.env` 文件中设置 `DATABASE_URL`：
 ```env
-DATABASE_URL="mongodb://localhost:27017/flashloom"
+DATABASE_URL="mongodb://localhost:27017/pixloom"
 # 或使用 MongoDB Atlas
-# DATABASE_URL="mongodb+srv://username:password@cluster.mongodb.net/flashloom?retryWrites=true&w=majority"
+# DATABASE_URL="mongodb+srv://username:password@cluster.mongodb.net/pixloom?retryWrites=true&w=majority"
 ```
 
 ### 2. 生成 Prisma Client
@@ -126,7 +126,7 @@ https://www.mongodb.com/try/download/compass
 mongosh
 
 # 切换到数据库
-use flashloom
+use pixloom
 
 # 查看集合
 show collections

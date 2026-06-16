@@ -15,7 +15,9 @@
   "nav": {
     "productImage": "Product Images",
     "sceneImage": "Scene Images",
-    "imageTools": "Image Tools"
+    "imageTools": "Image Tools",
+    "workflow": "Workflow",
+    "features": "Features"
   },
   "productImageMenus": {
     "mainImage": "Main Image",
@@ -34,13 +36,45 @@
     "logoGeneration": "Logo Generation"
   },
   "hero": {
-    "badge": "AI E-commerce Visual Platform",
-    "title": "Generate Product Images, Scene Photos & Detail Pages in One Place",
-    "description": "FlashLoom empowers brands and merchants to produce high-quality product visuals in minutes through intelligent generation and editing capabilities."
+    "badge": "AI Product Visual Workflow",
+    "title": "Upload a product and generate listing-ready main images, scene photos, and selling point visuals",
+    "description": "PixLoom organizes generation around the product itself, so you can go from product upload to scene selection and exportable marketing assets in one flow."
+  },
+  "home": {
+    "primaryCta": "Upload Product to Start",
+    "secondaryCta": "View Workflow",
+    "workflowTitle": "Create a product image set in 3 steps",
+    "workflowDescription": "The first version focuses on a new-user loop: upload product info, choose a use case and scene, then generate and export product visuals.",
+    "deliverables": {
+      "mainImage": "Main image output",
+      "sceneImage": "Scene image output",
+      "sellingPoints": "Selling point visuals",
+      "detailSet": "Detail page set"
+    },
+    "heroCard": {
+      "title": "Generation scenarios built for products",
+      "description": "Start from the product, category, and use case instead of a blank prompt box.",
+      "outputTitle": "First version output",
+      "outputDescription": "Quickly create main images, scene images, and selling assets around a single product for fast launches and conversion testing."
+    }
   },
   "features": {
     "title": "Features",
     "description": "Cover the entire product content generation workflow, making visual creation faster, more stable, and more commercially effective.",
+    "workflow": {
+      "productUpload": {
+        "title": "1. Upload product and enter key info",
+        "description": "Provide product name, description, selling points, and category so the system can organize generation around the product."
+      },
+      "sceneGeneration": {
+        "title": "2. Choose use case, scene, and style",
+        "description": "Generate for real e-commerce tasks like main images, scene images, and selling point visuals instead of writing an open-ended prompt."
+      },
+      "exportPack": {
+        "title": "3. Generate and prepare exportable assets",
+        "description": "Get a first preview result and set up the foundation for batch generation, platform resizing, and asset export."
+      }
+    },
     "productImage": {
       "title": "Product Image Generation",
       "description": "Input product information to quickly generate main images, selling point images, and detail page images, covering the complete e-commerce asset pipeline."
@@ -60,23 +94,57 @@
   },
   "generator": {
     "badge": "Gemini / Vertex AI",
-    "title": "Product Image Generator",
-    "description": "Initial version supports main product image generation: fill in product information, select e-commerce platform and visual style, call Gemini image generation model on Vertex AI to return preview images.",
+    "title": "Product Image Workflow",
+    "description": "Organize generation from product information instead of starting with a raw prompt. Choose the use case, category, scene, and selling points first, then generate the first result.",
+    "workflow": {
+      "step1Title": "Enter product information",
+      "step1Description": "Fill in the product name, description, and selling points to define the product first.",
+      "step2Title": "Choose the image task",
+      "step2Description": "Set parameters around real tasks like main images, scene images, or selling point visuals.",
+      "step3Title": "Generate and preview",
+      "step3Description": "Get the first generated result and the final composed prompt to validate the direction quickly.",
+      "step1": "Enter product details",
+      "step2": "Choose scene and use case",
+      "step3": "Generate first product image"
+    },
     "form": {
-      "title": "Product Image Generator v1",
-      "description": "Based on Gemini image generation model, complete the prompt filling, parameter selection, and result preview workflow for product main images.",
+      "title": "Create a product generation task",
+      "description": "Describe the product and selling points first, then choose scenes and export targets. The system will compose the final generation prompt for you.",
+      "productImage": "Product Image Preview",
+      "useCase": "Use Case",
+      "category": "Product Category",
       "productName": "Product Name",
       "productNamePlaceholder": "e.g., 316 Stainless Steel Thermos",
-      "prompt": "Product Description / Prompt",
-      "promptPlaceholder": "e.g., Generate a premium studio shot product image for Taobao main image, highlighting the metallic texture and large capacity",
+      "productDescription": "Product Description",
+      "productDescriptionPlaceholder": "e.g., A lightweight large-capacity stainless steel thermos for commuting and outdoor use, highlighting premium metallic texture and a clean design",
       "highlights": "Key Selling Points",
       "highlightsPlaceholder": "Enter 2-4 selling points, separated by semicolons or line breaks",
+      "scene": "Scene",
       "style": "Visual Style",
       "platform": "Target Platform",
       "aspectRatio": "Aspect Ratio",
+      "workflowTitle": "Current Workflow",
       "generating": "Generating...",
       "generate": "Generate Product Image",
       "generateFailed": "Generation failed"
+    },
+    "useCases": {
+      "mainImage": "Main Product Image",
+      "sceneImage": "Product Scene Image",
+      "sellingPoints": "Selling Point Visual",
+      "detailSet": "Detail Page Set"
+    },
+    "categories": {
+      "drinkware": "Drinkware",
+      "beauty": "Beauty & Personal Care",
+      "fashion": "Fashion Accessories",
+      "home": "Home & Living"
+    },
+    "scenes": {
+      "studio": "White Studio",
+      "kitchen": "Kitchen Counter",
+      "livingRoom": "Living Room",
+      "outdoor": "Outdoor Nature"
     },
     "styles": {
       "studioShot": "Premium Studio",
@@ -85,14 +153,89 @@
     },
     "result": {
       "title": "Result Preview",
-      "description": "Currently showing the first image returned by Gemini and the final concatenated prompt.",
+      "description": "Currently showing the first generated image and the final prompt composed from this product task.",
       "finalPrompt": "Final Prompt",
       "model": "Model",
-      "placeholder": "After submitting the form, the generated image, final prompt, and model information will be displayed here."
+      "placeholder": "After submitting the task, the first generated image, final prompt, and next-step asset directions will appear here.",
+      "preview": {
+        "mainImageTitle": "Main image preview",
+        "mainImageDescription": "Validate product placement, composition, and platform readiness.",
+        "sceneImageTitle": "Scene image direction",
+        "sceneImageDescription": "Next, you can generate more scene variants from the same product.",
+        "sellingPointsTitle": "Selling point direction",
+        "sellingPointsDescription": "Later, expand the same product into more detail-page and marketing visuals."
+      },
+      "output": {
+        "mainImageTitle": "Current main image result",
+        "mainImageDescription": "Continue refining platform, ratio, and visual style.",
+        "sceneImageTitle": "Expandable scene images",
+        "sceneImageDescription": "Switch to more lifestyle scenes while keeping the same product context.",
+        "detailSetTitle": "Expandable detail page set",
+        "detailSetDescription": "Turn the product description and selling points into more listing-ready visual assets."
+      }
     }
   },
+  "newProduct": {
+    "badge": "New Product",
+    "title": "Upload the product first, then continue into the generation workflow",
+    "description": "Prepare the product image, category, and selling points before generating scene images, main images, or selling visuals.",
+    "form": {
+      "title": "Create a product draft",
+      "description": "The first version connects upload and generation with a local draft, so the full flow works without a database.",
+      "image": "Upload Product Image",
+      "imageHintTitle": "Click to upload 1 product image",
+      "imageHintDescription": "Use a clear image with the full product visible. It will be carried into the workflow as the product reference preview.",
+      "imageTypeError": "Please upload an image file",
+      "imageReadError": "Failed to read the image. Please try again.",
+      "requiredError": "Please complete the product name, description, and upload an image",
+      "productName": "Product Name",
+      "productNamePlaceholder": "e.g., 316 Stainless Steel Thermos",
+      "category": "Product Category",
+      "productDescription": "Product Description",
+      "productDescriptionPlaceholder": "e.g., A large-capacity thermos for commuting and outdoor use, highlighting durability, portability, and metallic texture",
+      "highlights": "Key Selling Points",
+      "highlightsPlaceholder": "Enter 2-4 selling points, separated by semicolons or line breaks",
+      "useCase": "Primary Use Case",
+      "scene": "Preferred Scene",
+      "saving": "Saving...",
+      "submit": "Save and Continue to Generator"
+    },
+    "preview": {
+      "title": "Product Draft Preview",
+      "description": "After upload, the product information will be carried into the generation workflow.",
+      "empty": "Your product preview will appear here after uploading an image.",
+      "nextTitle": "What happens next",
+      "step1": "Enter the generation workflow with the uploaded product image",
+      "step2": "Auto-fill product name, description, category, and use case",
+      "step3": "Start generating the first product image immediately"
+    },
+    "categories": {
+      "drinkware": "Drinkware",
+      "beauty": "Beauty & Personal Care",
+      "fashion": "Fashion Accessories",
+      "home": "Home & Living"
+    },
+    "useCases": {
+      "mainImage": "Main Product Image",
+      "sceneImage": "Product Scene Image",
+      "sellingPoints": "Selling Point Visual",
+      "detailSet": "Detail Page Set"
+    },
+    "scenes": {
+      "studio": "White Studio",
+      "kitchen": "Kitchen Counter",
+      "livingRoom": "Living Room",
+      "outdoor": "Outdoor Nature"
+    }
+  },
+  "scenes": {
+    "studio": "White Studio",
+    "kitchen": "Kitchen Counter",
+    "livingRoom": "Living Room",
+    "outdoor": "Outdoor Nature"
+  },
   "metadata": {
-    "title": "FlashLoom - AI Product Image Generation Platform",
+    "title": "PixLoom - AI Product Image Generation Platform",
     "description": "Quickly generate high-quality product display images for e-commerce sellers using AI technology"
   }
 }

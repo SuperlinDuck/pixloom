@@ -1,4 +1,4 @@
-# FlashLoom - AI 商品图生成平台
+# PixLoom - AI 商品图生成平台
 
 通过 AI 技术为电商卖家快速生成高质量的商品展示图。
 
@@ -15,7 +15,7 @@
 1. **克隆项目**
 ```bash
 git clone <your-repo-url>
-cd flashloom
+cd pixloom
 ```
 
 2. **安装依赖**
@@ -32,7 +32,7 @@ cp .env.example .env
 4. **初始化数据库**
 ```bash
 # 创建数据库
-createdb flashloom
+createdb pixloom
 
 # 运行迁移
 npm run db:push
@@ -51,7 +51,7 @@ npm run dev
 ## 📁 项目结构
 
 ```
-flashloom/
+pixloom/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── (auth)/            # 认证相关页面
@@ -135,8 +135,8 @@ sudo apt-get install postgresql postgresql-contrib
 
 ```bash
 cd /var/www
-git clone <your-repo-url> flashloom
-cd flashloom
+git clone https://github.com/SuperlinDuck/pixloom.git pixloom
+cd pixloom
 ```
 
 ### 3. 配置环境
@@ -172,13 +172,13 @@ pm2 save
 
 ```bash
 # 复制 Nginx 配置
-sudo cp deploy/nginx.conf /etc/nginx/sites-available/flashloom
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/pixloom
 
 # 修改域名
-sudo nano /etc/nginx/sites-available/flashloom
+sudo nano /etc/nginx/sites-available/pixloom
 
 # 启用站点
-sudo ln -s /etc/nginx/sites-available/flashloom /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/pixloom /etc/nginx/sites-enabled/
 
 # 测试配置
 sudo nginx -t
@@ -221,7 +221,7 @@ bash deploy/deploy.sh
 pm2 status
 
 # 查看日志
-pm2 logs flashloom
+pm2 logs pixloom
 
 # 实时监控
 pm2 monit

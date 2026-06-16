@@ -45,7 +45,7 @@ cp .env.example .env
 
 编辑 `.env` 文件，至少需要配置：
 ```env
-DATABASE_URL="postgresql://user:password@localhost:5432/flashloom"
+DATABASE_URL="postgresql://user:password@localhost:5432/pixloom"
 NEXTAUTH_SECRET="your-secret-key"
 ```
 
@@ -62,14 +62,14 @@ openssl rand -base64 32
 ```bash
 brew install postgresql@14
 brew services start postgresql@14
-createdb flashloom
+createdb pixloom
 ```
 
 **或使用 Docker:**
 ```bash
-docker run --name flashloom-db \
+docker run --name pixloom-db \
   -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=flashloom \
+  -e POSTGRES_DB=pixloom \
   -p 5432:5432 \
   -d postgres:14
 ```
@@ -117,7 +117,7 @@ npx shadcn-ui@latest add dialog
 ## 📂 项目结构说明
 
 ```
-flashloom/
+pixloom/
 ├── src/
 │   ├── app/              # Next.js 页面和路由
 │   ├── components/       # React 组件
