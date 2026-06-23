@@ -24,6 +24,11 @@ interface VertexResponse {
 
 type StreamChunk = VertexResponse
 
+type ReferenceImageInput = {
+  data: string
+  mimeType: string
+}
+
 export interface ProductImageRequest {
   prompt: string
   style: string
@@ -33,7 +38,23 @@ export interface ProductImageRequest {
   highlights?: string
 }
 
+export interface TryOnImageRequest {
+  prompt?: string
+  gender: string
+  ageGroup: string
+  skinTone: string
+  bodyType: string
+  aspectRatio: string
+  clothingImages: ReferenceImageInput[]
+}
+
 export interface ProductImageResult {
+  prompt: string
+  imageUrl: string
+  model: string
+}
+
+export interface TryOnImageResult {
   prompt: string
   imageUrl: string
   model: string
@@ -48,6 +69,21 @@ function buildPrompt(input: ProductImageRequest) {
     input.highlights ? `核心卖点：${input.highlights}` : null,
     `用户需求：${input.prompt}`,
     "要求：主体突出、背景简洁、适合电商展示、质感真实、构图干净。",
+  ]
+    .filter(Boolean)
+    .join("\n")
+}
+
+function buildTryOnPrompt(input: TryOnImageRequest) {
+  return [
+    "你是电商服装上身图生成助手。",
+    `请基于用户提供的${input.clothingImages.length}张服装参考图，生成一张${input.aspectRatio}比例的服装上身效果图。`,
+    `模特性别：${input.gender}`,
+    `模特年龄段：${input.ageGroup}`,
+    `模特肤色：${input.skinTone}`,
+    `模特身材：${input.bodyType}`,
+    input.prompt ? `补充要求：${input.prompt}` : null,
+    "要求：尽量保留服装版型、材质、颜色和关键细节；模特姿态自然；服装贴合真实人体；输出适合电商展示；避免多余肢体、服装破损、结构错误和畸变。",
   ]
     .filter(Boolean)
     .join("\n")
@@ -93,7 +129,7 @@ async function parseStreamResponse(response: Response) {
   throw new Error(`Gemini 未返回图片数据: ${text}`)
 }
 
-export async function generateProductImage(input: ProductImageRequest): Promise<ProductImageResult> {
+async function generateImage(parts: VertexPart[]) {
   const apiKey = process.env.VERTEX_AI_API_KEY
   const model = process.env.VERTEX_AI_IMAGE_MODEL || DEFAULT_MODEL
 
@@ -101,8 +137,6 @@ export async function generateProductImage(input: ProductImageRequest): Promise<
     throw new Error("缺少 Vertex AI 配置，请设置 VERTEX_AI_API_KEY")
   }
 
-
-  const finalPrompt = buildPrompt(input)
   const endpoint = `https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:streamGenerateContent?key=${apiKey}`
 
   const response = await fetch(endpoint, {
@@ -114,7 +148,7 @@ export async function generateProductImage(input: ProductImageRequest): Promise<
       contents: [
         {
           role: "user",
-          parts: [{ text: finalPrompt }],
+          parts,
         },
       ],
       generationConfig: {
@@ -128,8 +162,38 @@ export async function generateProductImage(input: ProductImageRequest): Promise<
     throw new Error(`Vertex AI 调用失败: ${errorText}`)
   }
 
-  const imageBase64 = await parseStreamResponse(response)
+  return {
+    imageBase64: await parseStreamResponse(response),
+    model,
+  }
+}
 
+export async function generateProductImage(input: ProductImageRequest): Promise<ProductImageResult> {
+  const finalPrompt = buildPrompt(input)
+  const { imageBase64, model } = await generateImage([{ text: finalPrompt }])
+
+  const uploaded = await uploadImage(imageBase64, "image/png")
+
+  return {
+    prompt: finalPrompt,
+    imageUrl: uploaded.url,
+    model,
+  }
+}
+
+export async function generateTryOnImage(input: TryOnImageRequest): Promise<TryOnImageResult> {
+  const finalPrompt = buildTryOnPrompt(input)
+  const parts: VertexPart[] = [
+    { text: finalPrompt },
+    ...input.clothingImages.map((image) => ({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.data,
+      },
+    })),
+  ]
+
+  const { imageBase64, model } = await generateImage(parts)
   const uploaded = await uploadImage(imageBase64, "image/png")
 
   return {

@@ -16,7 +16,8 @@
     "productImage": "商品图生成",
     "sceneImage": "场景图生成",
     "imageTools": "图片工具",
-    "workflow": "工作流",
+    "workflow": "商品图生成",
+    "tryOn": "服装上身",
     "features": "功能"
   },
   "productImageMenus": {
@@ -226,6 +227,73 @@
       "kitchen": "厨房台面",
       "livingRoom": "客厅家居",
       "outdoor": "户外自然"
+    }
+  },
+  "tryOn": {
+    "badge": "Gemini / Vertex AI",
+    "title": "服装上身效果图生成",
+    "description": "上传一张或多张服装图，选择模特的性别、年龄段、肤色和身材，快速生成贴合真实人体的服装上身效果图。",
+    "workflow": {
+      "step1Title": "上传服装图",
+      "step1Description": "支持一次上传多张服装参考图，尽量提供清晰、平铺或正面的服装图。",
+      "step2Title": "设置模特属性",
+      "step2Description": "选择模特性别、年龄段、肤色和身材，定制更贴合目标人群的上身效果。",
+      "step3Title": "生成并预览",
+      "step3Description": "得到首张服装上身效果图和最终生成 Prompt，快速验证方向。"
+    },
+    "form": {
+      "title": "新建服装上身任务",
+      "description": "先上传服装图并设置模特属性，系统会自动拼接生成 Prompt 并输出上身效果图。",
+      "clothingImages": "服装图",
+      "imageHintTitle": "点击上传服装图（支持多张）",
+      "imageHintDescription": "最多上传 {max} 张，建议使用清晰、主体完整的服装图。",
+      "removeImage": "移除图片",
+      "imageTypeError": "请上传图片文件",
+      "imageReadError": "读取图片失败，请重试",
+      "imageLimitError": "最多只能上传 {max} 张图片",
+      "requiredError": "请至少上传一张服装图",
+      "gender": "模特性别",
+      "ageGroup": "年龄段",
+      "skinTone": "肤色",
+      "bodyType": "身材",
+      "aspectRatio": "图片比例",
+      "prompt": "补充要求",
+      "promptPlaceholder": "可填写姿势、背景、风格等补充要求，例如：自然站姿、纯色背景、电商棚拍风",
+      "generating": "生成中...",
+      "generate": "生成上身效果图",
+      "generateFailed": "生成失败"
+    },
+    "gender": {
+      "female": "女性",
+      "male": "男性",
+      "neutral": "中性"
+    },
+    "ageGroup": {
+      "child": "儿童",
+      "teen": "青少年",
+      "youngAdult": "青年",
+      "adult": "成年",
+      "senior": "中老年"
+    },
+    "skinTone": {
+      "fair": "白皙",
+      "medium": "自然",
+      "tan": "小麦",
+      "deep": "深色"
+    },
+    "bodyType": {
+      "slim": "苗条",
+      "average": "标准",
+      "athletic": "健硕",
+      "curvy": "丰满",
+      "plus": "大码"
+    },
+    "result": {
+      "title": "生成结果预览",
+      "description": "当前先展示首张服装上身效果图，以及这次任务拼接出的最终 Prompt。",
+      "finalPrompt": "最终 Prompt",
+      "model": "模型",
+      "placeholder": "提交任务后，这里会展示服装上身效果图和最终 Prompt。"
     }
   },
   "scenes": {

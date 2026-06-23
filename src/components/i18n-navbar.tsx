@@ -7,7 +7,6 @@ import {
   NavigationMenuLink,
   NavigationMenuList,
 } from "@/components/ui/navigation-menu"
-import { Zap } from "lucide-react"
 import { LanguageSwitcher } from "@/components/language-switcher"
 import { UserButton } from "@/components/auth/user-button"
 import { Link } from "@/i18n/routing"
@@ -19,9 +18,6 @@ export function I18nNavbar() {
     <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Zap className="h-5 w-5" />
-          </div>
           <span className="text-lg font-semibold tracking-tight">PixLoom</span>
         </Link>
 
@@ -42,6 +38,15 @@ export function I18nNavbar() {
                 className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
               >
                 {t("nav.workflow")}
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+
+            <NavigationMenuItem>
+              <NavigationMenuLink
+                href="/try-on"
+                className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
+              >
+                {t("nav.tryOn")}
               </NavigationMenuLink>
             </NavigationMenuItem>
 
@@ -80,6 +85,9 @@ export function I18nNavbar() {
             </Link>
             <Link href="/generator" className="block rounded-md px-2 py-1 hover:bg-accent">
               {t("nav.workflow")}
+            </Link>
+            <Link href="/try-on" className="block rounded-md px-2 py-1 hover:bg-accent">
+              {t("nav.tryOn")}
             </Link>
             <a href="/#features" className="block rounded-md px-2 py-1 hover:bg-accent">
               {t("nav.features")}

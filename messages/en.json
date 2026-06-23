@@ -16,7 +16,8 @@
     "productImage": "Product Images",
     "sceneImage": "Scene Images",
     "imageTools": "Image Tools",
-    "workflow": "Workflow",
+    "workflow": "Product Images",
+    "tryOn": "Try-On",
     "features": "Features"
   },
   "productImageMenus": {
@@ -226,6 +227,73 @@
       "kitchen": "Kitchen Counter",
       "livingRoom": "Living Room",
       "outdoor": "Outdoor Nature"
+    }
+  },
+  "tryOn": {
+    "badge": "Gemini / Vertex AI",
+    "title": "Clothing Try-On Image Generation",
+    "description": "Upload one or more clothing images, choose the model's gender, age group, skin tone, and body type, and quickly generate realistic clothing try-on visuals.",
+    "workflow": {
+      "step1Title": "Upload clothing images",
+      "step1Description": "Upload multiple clothing references at once. Prefer clear, flat-lay or front-facing clothing images.",
+      "step2Title": "Set model attributes",
+      "step2Description": "Choose the model's gender, age group, skin tone, and body type to tailor the try-on to your target audience.",
+      "step3Title": "Generate and preview",
+      "step3Description": "Get the first try-on result and the final composed prompt to validate the direction quickly."
+    },
+    "form": {
+      "title": "Create a try-on task",
+      "description": "Upload clothing images and set model attributes. The system composes the final prompt and outputs the try-on image.",
+      "clothingImages": "Clothing Images",
+      "imageHintTitle": "Click to upload clothing images (multiple supported)",
+      "imageHintDescription": "Up to {max} images. Use clear images with the full garment visible.",
+      "removeImage": "Remove image",
+      "imageTypeError": "Please upload image files",
+      "imageReadError": "Failed to read the image. Please try again.",
+      "imageLimitError": "You can upload at most {max} images",
+      "requiredError": "Please upload at least one clothing image",
+      "gender": "Model Gender",
+      "ageGroup": "Age Group",
+      "skinTone": "Skin Tone",
+      "bodyType": "Body Type",
+      "aspectRatio": "Aspect Ratio",
+      "prompt": "Additional Requirements",
+      "promptPlaceholder": "Add pose, background, or style notes, e.g., natural standing pose, solid background, studio e-commerce look",
+      "generating": "Generating...",
+      "generate": "Generate Try-On Image",
+      "generateFailed": "Generation failed"
+    },
+    "gender": {
+      "female": "Female",
+      "male": "Male",
+      "neutral": "Neutral"
+    },
+    "ageGroup": {
+      "child": "Child",
+      "teen": "Teen",
+      "youngAdult": "Young Adult",
+      "adult": "Adult",
+      "senior": "Senior"
+    },
+    "skinTone": {
+      "fair": "Fair",
+      "medium": "Medium",
+      "tan": "Tan",
+      "deep": "Deep"
+    },
+    "bodyType": {
+      "slim": "Slim",
+      "average": "Average",
+      "athletic": "Athletic",
+      "curvy": "Curvy",
+      "plus": "Plus Size"
+    },
+    "result": {
+      "title": "Result Preview",
+      "description": "Currently showing the first try-on image and the final prompt composed from this task.",
+      "finalPrompt": "Final Prompt",
+      "model": "Model",
+      "placeholder": "After submitting the task, the try-on image and final prompt will appear here."
     }
   },
   "scenes": {
