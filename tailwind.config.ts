@@ -20,10 +20,14 @@ const config = {
     },
     extend: {
       fontFamily: {
-        sans: ["var(--font-inter)", ...fontFamily.sans],
-        display: ["var(--font-sora)", ...fontFamily.sans],
+        sans: ["var(--font-dm-sans)", ...fontFamily.sans],
+        display: ["var(--font-bricolage)", ...fontFamily.sans],
       },
       colors: {
+        signal: "#46E6F2",
+        iris: "#7B5CFF",
+        pulse: "#FA4CAE",
+        ink: "#090B13",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -62,6 +66,10 @@ const config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        signal: "0 0 32px rgba(70, 230, 242, 0.16)",
+        iris: "0 24px 80px rgba(123, 92, 255, 0.18)",
       },
       keyframes: {
         "accordion-down": {

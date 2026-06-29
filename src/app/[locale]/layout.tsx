@@ -1,21 +1,8 @@
 import type { Metadata } from "next"
-import { Inter, Sora } from "next/font/google"
 import { notFound } from "next/navigation"
 import { NextIntlClientProvider } from "next-intl"
 import { getMessages } from "next-intl/server"
 import { routing } from "@/i18n/routing"
-import "../globals.css"
-
-const inter = Inter({ 
-  subsets: ["latin"],
-  variable: "--font-inter",
-})
-
-const sora = Sora({ 
-  subsets: ["latin"],
-  variable: "--font-sora",
-  weight: ["400", "500", "600", "700", "800"],
-})
 
 type Props = {
   children: React.ReactNode
@@ -47,10 +34,6 @@ export default async function LocaleLayout({ children, params }: Props) {
   const messages = await getMessages()
 
   return (
-    <html lang={locale}>
-      <body className={`${inter.variable} ${sora.variable} font-sans`}>
-        <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
-      </body>
-    </html>
+    <NextIntlClientProvider messages={messages}>{children}</NextIntlClientProvider>
   )
 }

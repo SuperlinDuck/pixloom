@@ -9,68 +9,81 @@ import {
 } from "@/components/ui/navigation-menu"
 import { LanguageSwitcher } from "@/components/language-switcher"
 import { UserButton } from "@/components/auth/user-button"
-import { Link } from "@/i18n/routing"
+import { Link, usePathname } from "@/i18n/routing"
+import { PixLoomWordmark } from "@/components/pixloom-wordmark"
+import { cn } from "@/lib/utils"
+
+const navLinkClassName =
+  "group relative inline-flex h-10 w-max items-center justify-center px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none after:absolute after:bottom-0 after:left-1/2 after:h-0.5 after:w-0 after:-translate-x-1/2 after:rounded-full after:bg-[#FA4DAD] after:transition-[width] after:duration-300 after:ease-out hover:after:w-[calc(100%-2rem)] focus-visible:after:w-[calc(100%-2rem)]"
 
 export function I18nNavbar() {
   const t = useTranslations()
+  const pathname = usePathname()
+
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/"
+    return pathname === href || pathname.startsWith(`${href}/`)
+  }
+
+  const pageLinkClassName = (href: string) =>
+    cn(
+      navLinkClassName,
+      isActive(href) &&
+        "text-foreground after:w-[calc(100%-2rem)] after:shadow-[0_0_8px_rgba(250,77,173,0.55)]"
+    )
 
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="text-lg font-semibold tracking-tight">PixLoom</span>
+    <header className="sticky top-0 z-20 border-b border-border/70 bg-background/80 backdrop-blur-xl">
+      <div className="mx-auto grid h-[72px] w-full max-w-7xl grid-cols-[1fr_auto_1fr] items-center px-4 sm:px-6 lg:px-8">
+        <Link href="/" className="flex w-max items-center gap-2">
+          <PixLoomWordmark className="text-[28px] leading-none" />
         </Link>
 
         <NavigationMenu className="hidden md:flex">
           <NavigationMenuList>
             <NavigationMenuItem>
-              <NavigationMenuLink
-                href="/"
-                className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
-              >
-                {t("common.home")}
+              <NavigationMenuLink asChild>
+                <Link href="/" className={pageLinkClassName("/")}>
+                  {t("common.home")}
+                </Link>
               </NavigationMenuLink>
             </NavigationMenuItem>
 
             <NavigationMenuItem>
-              <NavigationMenuLink
-                href="/generator"
-                className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
-              >
-                {t("nav.workflow")}
+              <NavigationMenuLink asChild>
+                <Link href="/generator" className={pageLinkClassName("/generator")}>
+                  {t("nav.workflow")}
+                </Link>
               </NavigationMenuLink>
             </NavigationMenuItem>
 
             <NavigationMenuItem>
-              <NavigationMenuLink
-                href="/try-on"
-                className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
-              >
-                {t("nav.tryOn")}
+              <NavigationMenuLink asChild>
+                <Link href="/try-on" className={pageLinkClassName("/try-on")}>
+                  {t("nav.tryOn")}
+                </Link>
               </NavigationMenuLink>
             </NavigationMenuItem>
 
             <NavigationMenuItem>
-              <NavigationMenuLink
-                href="/#features"
-                className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
-              >
-                {t("nav.features")}
+              <NavigationMenuLink asChild>
+                <Link href="/#features" className={navLinkClassName}>
+                  {t("nav.features")}
+                </Link>
               </NavigationMenuLink>
             </NavigationMenuItem>
 
             <NavigationMenuItem>
-              <NavigationMenuLink
-                href="/#pricing"
-                className="group inline-flex h-10 w-max items-center justify-center rounded-md bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground focus:outline-none"
-              >
-                {t("common.pricing")}
+              <NavigationMenuLink asChild>
+                <Link href="/#pricing" className={navLinkClassName}>
+                  {t("common.pricing")}
+                </Link>
               </NavigationMenuLink>
             </NavigationMenuItem>
           </NavigationMenuList>
         </NavigationMenu>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-self-end gap-3">
           <LanguageSwitcher />
           <UserButton />
         </div>
@@ -89,12 +102,12 @@ export function I18nNavbar() {
             <Link href="/try-on" className="block rounded-md px-2 py-1 hover:bg-accent">
               {t("nav.tryOn")}
             </Link>
-            <a href="/#features" className="block rounded-md px-2 py-1 hover:bg-accent">
+            <Link href="/#features" className="block rounded-md px-2 py-1 hover:bg-accent">
               {t("nav.features")}
-            </a>
-            <a href="/#pricing" className="block rounded-md px-2 py-1 hover:bg-accent">
+            </Link>
+            <Link href="/#pricing" className="block rounded-md px-2 py-1 hover:bg-accent">
               {t("common.pricing")}
-            </a>
+            </Link>
           </div>
         </details>
       </div>
