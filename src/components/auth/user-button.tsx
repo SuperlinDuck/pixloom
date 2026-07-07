@@ -32,7 +32,7 @@ export function UserButton() {
   }
 
   return (
-    <div className="flex h-10 w-[92px] items-center justify-end">
+    <div className="flex h-10 w-9 items-center justify-end">
       <button
         type="button"
         onClick={() => signOut()}
