@@ -4,48 +4,48 @@
 
 @layer base {
   :root {
-    --background: 228 36% 5%;
-    --foreground: 225 100% 98%;
-    --card: 233 32% 11%;
-    --card-foreground: 225 100% 98%;
-    --popover: 233 32% 11%;
-    --popover-foreground: 225 100% 98%;
-    --primary: 185 87% 61%;
-    --primary-foreground: 228 36% 5%;
-    --secondary: 251 100% 68%;
-    --secondary-foreground: 225 100% 98%;
-    --muted: 231 26% 15%;
-    --muted-foreground: 226 20% 65%;
-    --accent: 231 26% 17%;
-    --accent-foreground: 185 87% 61%;
+    --background: 54 23% 96%;
+    --foreground: 28 12% 14%;
+    --card: 48 24% 92%;
+    --card-foreground: 28 12% 14%;
+    --popover: 48 24% 94%;
+    --popover-foreground: 28 12% 14%;
+    --primary: 18 17% 52%;
+    --primary-foreground: 48 35% 96%;
+    --secondary: 176 19% 38%;
+    --secondary-foreground: 48 35% 96%;
+    --muted: 45 18% 88%;
+    --muted-foreground: 28 8% 42%;
+    --accent: 27 26% 84%;
+    --accent-foreground: 25 14% 22%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 237 21% 23%;
-    --input: 237 21% 23%;
-    --ring: 185 87% 61%;
+    --border: 32 18% 79%;
+    --input: 32 18% 79%;
+    --ring: 18 17% 52%;
     --radius: 0.375rem;
   }
 
   .dark {
-    --background: 228 36% 5%;
-    --foreground: 225 100% 98%;
-    --card: 233 32% 11%;
-    --card-foreground: 225 100% 98%;
-    --popover: 233 32% 11%;
-    --popover-foreground: 225 100% 98%;
-    --primary: 185 87% 61%;
-    --primary-foreground: 228 36% 5%;
-    --secondary: 251 100% 68%;
-    --secondary-foreground: 225 100% 98%;
-    --muted: 231 26% 15%;
-    --muted-foreground: 226 20% 65%;
-    --accent: 231 26% 17%;
-    --accent-foreground: 185 87% 61%;
+    --background: 54 23% 96%;
+    --foreground: 28 12% 14%;
+    --card: 48 24% 92%;
+    --card-foreground: 28 12% 14%;
+    --popover: 48 24% 94%;
+    --popover-foreground: 28 12% 14%;
+    --primary: 18 17% 52%;
+    --primary-foreground: 48 35% 96%;
+    --secondary: 176 19% 38%;
+    --secondary-foreground: 48 35% 96%;
+    --muted: 45 18% 88%;
+    --muted-foreground: 28 8% 42%;
+    --accent: 27 26% 84%;
+    --accent-foreground: 25 14% 22%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 237 21% 23%;
-    --input: 237 21% 23%;
-    --ring: 185 87% 61%;
+    --border: 32 18% 79%;
+    --input: 32 18% 79%;
+    --ring: 18 17% 52%;
   }
 }
 
@@ -56,21 +56,21 @@
   body {
     @apply bg-background text-foreground antialiased;
     background-image:
-      radial-gradient(circle at 75% 10%, rgba(123, 92, 255, 0.12), transparent 28rem),
-      radial-gradient(circle at 12% 32%, rgba(70, 230, 242, 0.06), transparent 24rem);
+      radial-gradient(circle at 74% 8%, rgba(185, 160, 145, 0.2), transparent 26rem),
+      radial-gradient(circle at 8% 34%, rgba(94, 132, 129, 0.1), transparent 22rem);
   }
 
   ::selection {
-    background: rgba(70, 230, 242, 0.28);
-    color: #f5f7ff;
+    background: rgba(166, 126, 108, 0.28);
+    color: #24211f;
   }
 }
 
 @layer utilities {
   .signal-grid {
     background-image:
-      linear-gradient(rgba(70, 230, 242, 0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(70, 230, 242, 0.055) 1px, transparent 1px);
+      linear-gradient(rgba(76, 67, 58, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(76, 67, 58, 0.055) 1px, transparent 1px);
     background-size: 42px 42px;
     mask-image: linear-gradient(to bottom, black, transparent 88%);
   }

@@ -38,8 +38,8 @@
   },
   "hero": {
     "badge": "AI 商品营销图工作流",
-    "title": "上传商品图，快速生成可上架的主图、场景图与卖点图",
-    "description": "PixLoom 以商品为核心组织生成流程，让你从上传商品、选择场景，到导出整套营销素材都能一次完成。"
+    "title": "AI product imagery, tuned for commerce",
+    "description": "Upload a product and generate listing-ready main images, scene photos, and selling point visuals."
   },
   "home": {
     "primaryCta": "上传商品开始生成",

@@ -24,7 +24,7 @@ const config = {
         display: ["var(--font-bricolage)", ...fontFamily.sans],
       },
       colors: {
-        signal: "#46E6F2",
+        signal: "hsl(var(--primary))",
         iris: "#7B5CFF",
         pulse: "#FA4CAE",
         ink: "#090B13",
@@ -68,8 +68,8 @@ const config = {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        signal: "0 0 32px rgba(70, 230, 242, 0.16)",
-        iris: "0 24px 80px rgba(123, 92, 255, 0.18)",
+        signal: "0 14px 32px rgba(138, 116, 105, 0.18)",
+        iris: "0 24px 80px rgba(104, 82, 69, 0.16)",
       },
       keyframes: {
         "accordion-down": {
