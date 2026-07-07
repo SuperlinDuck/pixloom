@@ -57,6 +57,18 @@
       "description": "Start from the product, category, and use case instead of a blank prompt box.",
       "outputTitle": "First version output",
       "outputDescription": "Quickly create main images, scene images, and selling assets around a single product for fast launches and conversion testing."
+    },
+    "showcase": {
+      "title": "Finished Image Showcase",
+      "description": "Preview listing-ready main images, lifestyle scenes, and marketing assets with finished visuals that build trust on the homepage.",
+      "items": {
+        "hero": "Homepage hero visual",
+        "scene": "Lifestyle scene",
+        "detail": "Detail page asset",
+        "social": "Social campaign image",
+        "marketplace": "Marketplace card",
+        "campaign": "Promotion visual"
+      }
     }
   },
   "features": {

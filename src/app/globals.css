@@ -74,4 +74,108 @@
     background-size: 42px 42px;
     mask-image: linear-gradient(to bottom, black, transparent 88%);
   }
+
+  .showcase-carousel {
+    --showcase-card-width: clamp(15rem, 27vw, 32rem);
+    position: relative;
+    width: min(100vw, 96rem);
+    margin-inline: auto;
+    mask-image: linear-gradient(90deg, transparent, black 8%, black 92%, transparent);
+  }
+
+  .showcase-carousel-card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--showcase-card-width);
+    aspect-ratio: 1 / 1;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform 520ms ease,
+      opacity 520ms ease,
+      filter 520ms ease;
+    will-change: transform, opacity;
+  }
+
+  .showcase-carousel-card-inner {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 0.55rem;
+    background: #ededec;
+    box-shadow: 0 10px 18px rgba(20, 20, 20, 0.1);
+  }
+
+  .showcase-carousel-card.is-active {
+    z-index: 5;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) translateX(0) scale(1);
+    filter: none;
+  }
+
+  .showcase-carousel-card.is-prev {
+    z-index: 4;
+    opacity: 0.52;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) translateX(-72%) scale(0.76);
+    filter: grayscale(0.06);
+  }
+
+  .showcase-carousel-card.is-next {
+    z-index: 4;
+    opacity: 0.52;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) translateX(72%) scale(0.76);
+    filter: grayscale(0.06);
+  }
+
+  .showcase-carousel-card.is-prev-far {
+    z-index: 2;
+    opacity: 0.16;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) translateX(-145%) scale(0.68);
+    filter: grayscale(0.12);
+  }
+
+  .showcase-carousel-card.is-next-far {
+    z-index: 2;
+    opacity: 0.16;
+    pointer-events: auto;
+    transform: translate(-50%, -50%) translateX(145%) scale(0.68);
+    filter: grayscale(0.12);
+  }
+
+  .showcase-carousel-card.is-hidden {
+    z-index: 1;
+    opacity: 0;
+    transform: translate(-50%, -50%) translateX(180%) scale(0.62);
+  }
+
+  @media (max-width: 640px) {
+    .showcase-carousel {
+      --showcase-card-width: min(68vw, 17rem);
+      mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
+    }
+
+    .showcase-carousel-card.is-prev {
+      transform: translate(-50%, -50%) translateX(-58%) scale(0.72);
+    }
+
+    .showcase-carousel-card.is-next {
+      transform: translate(-50%, -50%) translateX(58%) scale(0.72);
+    }
+
+    .showcase-carousel-card.is-prev-far,
+    .showcase-carousel-card.is-next-far {
+      opacity: 0;
+      pointer-events: none;
+    }
+  }
 }

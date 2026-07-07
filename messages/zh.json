@@ -57,6 +57,18 @@
       "description": "不是从 Prompt 开始，而是从商品、类目和用途开始。",
       "outputTitle": "首版输出",
       "outputDescription": "围绕单个商品快速生成主图、场景图和卖点素材，适合刚开始上新和验证转化的卖家。"
+    },
+    "showcase": {
+      "title": "成品图展示",
+      "description": "用真实成品图预览主图、场景图和营销素材的最终呈现效果，适合首页快速建立视觉信任。",
+      "items": {
+        "hero": "首页主视觉",
+        "scene": "生活方式场景",
+        "detail": "详情页素材",
+        "social": "社媒推广图",
+        "marketplace": "平台商品卡",
+        "campaign": "营销活动图"
+      }
     }
   },
   "features": {

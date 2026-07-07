@@ -1,9 +1,13 @@
 "use client"
 
+import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
+import Image from "next/image"
 import {
   ArrowRight,
   Check,
+  ChevronLeft,
+  ChevronRight,
   ImageIcon,
   Layers3,
   SlidersHorizontal,
@@ -65,6 +69,82 @@ export default function Home() {
       description: t("features.collaboration.description"),
     },
   ]
+
+  const showcaseItems = [
+    t("home.showcase.items.hero"),
+    t("home.showcase.items.scene"),
+    t("home.showcase.items.detail"),
+    t("home.showcase.items.social"),
+    t("home.showcase.items.marketplace"),
+    t("home.showcase.items.campaign"),
+  ]
+
+  const showcaseImage = "/images/home/product-showcase-01.png"
+  const [activeShowcaseIndex, setActiveShowcaseIndex] = useState(0)
+  const [isShowcaseAutoPaused, setIsShowcaseAutoPaused] = useState(false)
+  const resumeShowcaseTimerRef = useRef<number | null>(null)
+
+  const pauseShowcaseAutoplay = () => {
+    setIsShowcaseAutoPaused(true)
+
+    if (resumeShowcaseTimerRef.current) {
+      window.clearTimeout(resumeShowcaseTimerRef.current)
+    }
+
+    resumeShowcaseTimerRef.current = window.setTimeout(() => {
+      setIsShowcaseAutoPaused(false)
+      resumeShowcaseTimerRef.current = null
+    }, 6000)
+  }
+
+  const moveShowcase = (direction: -1 | 1) => {
+    pauseShowcaseAutoplay()
+    setActiveShowcaseIndex((current) => (current + direction + showcaseItems.length) % showcaseItems.length)
+  }
+
+  const selectShowcase = (index: number) => {
+    pauseShowcaseAutoplay()
+    setActiveShowcaseIndex(index)
+  }
+
+  useEffect(() => {
+    if (isShowcaseAutoPaused) {
+      return undefined
+    }
+
+    const timer = window.setInterval(() => {
+      setActiveShowcaseIndex((current) => (current + 1) % showcaseItems.length)
+    }, 3500)
+
+    return () => window.clearInterval(timer)
+  }, [isShowcaseAutoPaused, showcaseItems.length])
+
+  useEffect(() => {
+    return () => {
+      if (resumeShowcaseTimerRef.current) {
+        window.clearTimeout(resumeShowcaseTimerRef.current)
+      }
+    }
+  }, [])
+
+  const getShowcasePosition = (index: number) => {
+    let offset = index - activeShowcaseIndex
+
+    if (offset > showcaseItems.length / 2) {
+      offset -= showcaseItems.length
+    }
+
+    if (offset < -showcaseItems.length / 2) {
+      offset += showcaseItems.length
+    }
+
+    if (offset === 0) return "is-active"
+    if (offset === -1) return "is-prev"
+    if (offset === 1) return "is-next"
+    if (offset === -2) return "is-prev-far"
+    if (offset === 2) return "is-next-far"
+    return "is-hidden"
+  }
 
   return (
     <main className="min-h-screen overflow-hidden bg-background">
@@ -198,10 +278,72 @@ export default function Home() {
         </div>
       </section>
 
+      <section id="showcase" className="w-full overflow-hidden bg-[#f7f7f5] py-24 text-[#242424]">
+        <div className="mx-auto w-full max-w-7xl px-4 text-center sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-3xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#777]">02 / Showcase</p>
+            <h2 className="mt-4 font-display text-4xl font-extrabold tracking-[-0.04em] sm:text-5xl">
+              {t("home.showcase.title")}
+            </h2>
+            <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-[#6f6f6f]">
+              {t("home.showcase.description")}
+            </p>
+          </div>
+        </div>
+
+        <div className="showcase-carousel mt-14 h-[300px] sm:h-[420px] lg:h-[520px]">
+          {showcaseItems.map((item, index) => (
+            <button
+              key={item}
+              type="button"
+              className={`showcase-carousel-card ${getShowcasePosition(index)}`}
+              onClick={() => selectShowcase(index)}
+              aria-label={item}
+            >
+              <div className="showcase-carousel-card-inner">
+                <Image
+                  src={showcaseImage}
+                  alt={item}
+                  width={800}
+                  height={800}
+                  sizes="(min-width: 1024px) 420px, (min-width: 640px) 340px, 260px"
+                  className="h-full w-full object-cover"
+                />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/25 via-black/5 to-transparent p-4 pt-16">
+                  <div className="mx-auto flex w-fit items-center gap-3 rounded-full bg-[#c8b8b2] px-5 py-2.5 text-xs font-bold text-white shadow-sm backdrop-blur-md">
+                    <span>{item}</span>
+                    <span className="text-white/75">{String(index + 1).padStart(2, "0")}</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-8 flex justify-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => moveShowcase(-1)}
+            className="flex size-12 items-center justify-center rounded-md bg-[#e6e6e6] text-[#626262] transition hover:bg-[#dcdcdc] hover:text-[#2a2a2a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a9a9a]"
+            aria-label="Previous image"
+          >
+            <ChevronLeft className="size-6" />
+          </button>
+          <button
+            type="button"
+            onClick={() => moveShowcase(1)}
+            className="flex size-12 items-center justify-center rounded-md bg-[#e6e6e6] text-[#626262] transition hover:bg-[#dcdcdc] hover:text-[#2a2a2a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a9a9a]"
+            aria-label="Next image"
+          >
+            <ChevronRight className="size-6" />
+          </button>
+        </div>
+      </section>
+
       <section id="features" className="mx-auto w-full max-w-7xl px-4 py-24 sm:px-6 lg:px-8">
         <div className="grid gap-14 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
           <div className="lg:sticky lg:top-28">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-pulse">02 / Product</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-pulse">03 / Product</p>
             <h2 className="mt-4 font-display text-4xl font-extrabold tracking-[-0.04em] sm:text-5xl">
               {t("features.title")}
             </h2>
@@ -233,7 +375,7 @@ export default function Home() {
           <div className="absolute -bottom-32 left-1/3 h-64 w-64 rounded-full bg-pulse/10 blur-[100px]" />
           <div className="relative flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-iris">03 / Start creating</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-iris">04 / Start creating</p>
               <h2 className="mt-4 font-display text-4xl font-extrabold tracking-[-0.04em] sm:text-5xl">
                 {t("pricing.title")}
               </h2>
