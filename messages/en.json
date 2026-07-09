@@ -58,6 +58,15 @@
       "outputTitle": "First version output",
       "outputDescription": "Quickly create main images, scene images, and selling assets around a single product for fast launches and conversion testing."
     },
+    "heroShowcase": {
+      "label": "Product image generation preview",
+      "input": "Uploaded product reference image",
+      "outputs": {
+        "main": "Generated main product image",
+        "scene": "Generated product scene image",
+        "detail": "Generated selling point image"
+      }
+    },
     "showcase": {
       "title": "Finished Image Showcase",
       "description": "Preview listing-ready main images, lifestyle scenes, and marketing assets with finished visuals that build trust on the homepage.",

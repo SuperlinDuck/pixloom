@@ -58,6 +58,15 @@
       "outputTitle": "首版输出",
       "outputDescription": "围绕单个商品快速生成主图、场景图和卖点素材，适合刚开始上新和验证转化的卖家。"
     },
+    "heroShowcase": {
+      "label": "商品图生成效果预览",
+      "input": "上传的商品参考图",
+      "outputs": {
+        "main": "生成的商品主图",
+        "scene": "生成的商品场景图",
+        "detail": "生成的卖点图"
+      }
+    },
     "showcase": {
       "title": "成品图展示",
       "description": "用真实成品图预览主图、场景图和营销素材的最终呈现效果，适合首页快速建立视觉信任。",

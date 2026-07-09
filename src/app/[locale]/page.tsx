@@ -51,6 +51,24 @@ export default function Home() {
     t("home.deliverables.detailSet"),
   ]
 
+  const heroVisuals = [
+    {
+      src: "/images/home/session-1/product-01.png",
+      alt: t("home.heroShowcase.outputs.main"),
+      className: "left-[40%] top-[1%] w-[45%] rotate-[1.5deg]",
+    },
+    {
+      src: "/images/home/session-1/product-02.png",
+      alt: t("home.heroShowcase.outputs.scene"),
+      className: "right-[0%] top-[34%] w-[50%] rotate-[3deg]",
+    },
+    {
+      src: "/images/home/session-1/product-03.png",
+      alt: t("home.heroShowcase.outputs.detail"),
+      className: "left-[22%] bottom-[1%] w-[42%] -rotate-[2deg]",
+    },
+  ]
+
   const features = [
     {
       icon: ImageIcon,
@@ -182,18 +200,17 @@ export default function Home() {
       <I18nNavbar />
 
       <section id="home" className="relative flex min-h-[calc(100svh-72px)] items-center">
-        <div className="signal-grid pointer-events-none absolute inset-0" />
         <div className="pointer-events-none absolute left-1/2 top-20 h-80 w-80 -translate-x-1/2 rounded-full bg-[#c8b8b2]/30 blur-[120px]" />
         <div className="pointer-events-none absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-[#7fa29e]/10 blur-[110px]" />
-        <div className="relative mx-auto flex w-full max-w-7xl justify-center px-4 py-20 text-center sm:px-6 md:py-24 lg:px-8">
-          <div className="mx-auto flex max-w-5xl flex-col items-center">
+        <div className="relative mx-auto grid w-full max-w-7xl items-center gap-14 px-4 py-14 sm:px-6 md:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(25rem,0.82fr)] lg:px-8 lg:py-20 xl:gap-20">
+          <div className="mx-auto flex max-w-5xl flex-col items-center text-center lg:items-start lg:text-left">
             <h1 className="max-w-4xl font-display text-5xl font-extrabold leading-[1.04] tracking-[-0.045em] text-foreground sm:text-6xl md:text-[68px] xl:text-[78px]">
               {t("hero.title")}
             </h1>
             <p className="mt-7 max-w-2xl text-base leading-7 text-[#6f6a64] sm:text-lg">
               {t("hero.description")}
             </p>
-            <div className="mt-9 flex flex-wrap justify-center gap-3">
+            <div className="mt-9 flex flex-wrap justify-center gap-3 lg:justify-start">
               <Button size="lg" asChild className="h-12 px-6">
                 <Link href="/products/new">
                   {t("home.primaryCta")}
@@ -204,7 +221,7 @@ export default function Home() {
                 <a href="#workflow">{t("home.secondaryCta")}</a>
               </Button>
             </div>
-            <div className="mt-9 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-3 text-sm text-[#6f6a64]">
+            <div className="mt-9 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-3 text-sm text-[#6f6a64] lg:justify-start">
               {deliverables.map((item) => (
                 <div key={item} className="flex items-center gap-2">
                   <Check className="size-4 text-[#6f928e]" />
@@ -212,6 +229,49 @@ export default function Home() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="relative mx-auto hidden aspect-[0.92] w-full max-w-[34rem] lg:block" aria-label={t("home.heroShowcase.label")}>
+            <div className="absolute left-[0%] top-[34%] z-20 w-[24%] -rotate-[2deg] rounded-md shadow-[0_18px_45px_rgba(85,70,58,0.16)]">
+              <Image
+                src="/images/home/session-1/product-image.png"
+                alt={t("home.heroShowcase.input")}
+                width={1024}
+                height={1024}
+                sizes="150px"
+                priority
+                className="aspect-square w-full rounded-md object-cover"
+              />
+            </div>
+
+            <div className="pointer-events-none absolute left-[6%] top-[12%] z-40 w-[31%] -rotate-[7deg]" aria-hidden="true">
+              <Image
+                src="/images/home/session-1/hero-arrow.png"
+                alt=""
+                width={623}
+                height={478}
+                sizes="180px"
+                priority
+                className="h-auto w-full object-contain"
+              />
+            </div>
+
+            {heroVisuals.map((item) => (
+              <div
+                key={item.src}
+                className={`absolute z-30 overflow-hidden rounded-md shadow-[0_24px_60px_rgba(85,70,58,0.18)] ${item.className}`}
+              >
+                <Image
+                  src={item.src}
+                  alt={item.alt}
+                  width={1254}
+                  height={1254}
+                  sizes="(min-width: 1280px) 280px, 220px"
+                  priority
+                  className="aspect-square w-full object-cover"
+                />
+              </div>
+            ))}
           </div>
         </div>
       </section>
