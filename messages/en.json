@@ -111,8 +111,83 @@
     }
   },
   "pricing": {
-    "title": "Pricing",
-    "description": "Flexible plans with pay-as-you-go and enterprise customization options. Scale freely based on team size and image generation needs."
+    "eyebrow": "Simple, transparent pricing",
+    "title": "Choose your creative pace",
+    "description": "From validating your first product idea to powering a team's daily launches. Upgrade or cancel at any time.",
+    "billingLabel": "Choose billing cycle",
+    "billing": {
+      "monthly": "Monthly",
+      "yearly": "Yearly",
+      "save": "Save 17%",
+      "monthlyNote": "Billed monthly, cancel anytime",
+      "unit": {
+        "monthly": "month",
+        "yearly": "year"
+      }
+    },
+    "currency": "$",
+    "recommended": "Most popular",
+    "includes": "What's included",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "description": "Explore the essentials and create your first product visuals.",
+        "prices": {
+          "monthly": "0",
+          "yearly": "0"
+        },
+        "yearlyNote": "Free forever, no payment method required",
+        "cta": "Start for free",
+        "features": {
+          "1": "20 image generations per month",
+          "2": "Main and scene image generation",
+          "3": "3 product drafts",
+          "4": "Standard generation speed",
+          "5": "Community support"
+        }
+      },
+      "plus": {
+        "name": "Plus",
+        "description": "For solo sellers and creators producing launch assets often.",
+        "prices": {
+          "monthly": "12",
+          "yearly": "120"
+        },
+        "yearlyNote": "Equivalent to $10/month — save $24 yearly",
+        "cta": "Choose Plus",
+        "features": {
+          "1": "500 image generations per month",
+          "2": "Everything in Free",
+          "3": "Main, scene, and selling point visuals",
+          "4": "HD exports without watermarks",
+          "5": "Priority generation queue",
+          "6": "Unlimited drafts and history"
+        }
+      },
+      "pro": {
+        "name": "Pro",
+        "description": "For brands and small teams scaling visual production.",
+        "prices": {
+          "monthly": "32",
+          "yearly": "320"
+        },
+        "yearlyNote": "Equivalent to $26.67/month — save $64 yearly",
+        "cta": "Choose Pro",
+        "features": {
+          "1": "2,000 image generations per month",
+          "2": "Everything in Plus",
+          "3": "Detail page sets and batch generation",
+          "4": "Up to 5 team members",
+          "5": "Brand styles and template management",
+          "6": "Higher resolution and priority queue",
+          "7": "Dedicated email support"
+        }
+      }
+    },
+    "footer": {
+      "title": "Need more generations or team seats?",
+      "description": "Contact us for a custom plan with tailored usage, permissions, and dedicated support."
+    }
   },
   "generator": {
     "badge": "Gemini / Vertex AI",

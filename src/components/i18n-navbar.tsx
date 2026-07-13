@@ -67,7 +67,7 @@ export function I18nNavbar() {
 
             <NavigationMenuItem>
               <NavigationMenuLink asChild>
-                <Link href="/#pricing" className={navLinkClassName}>
+                <Link href="/pricing" className={pageLinkClassName("/pricing")}>
                   {t("common.pricing")}
                 </Link>
               </NavigationMenuLink>
@@ -94,7 +94,7 @@ export function I18nNavbar() {
             <Link href="/try-on" className="block rounded-md px-2 py-1 hover:bg-[#efe5db]">
               {t("nav.tryOn")}
             </Link>
-            <Link href="/#pricing" className="block rounded-md px-2 py-1 hover:bg-[#efe5db]">
+            <Link href="/pricing" className="block rounded-md px-2 py-1 hover:bg-[#efe5db]">
               {t("common.pricing")}
             </Link>
           </div>

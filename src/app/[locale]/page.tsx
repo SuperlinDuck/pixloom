@@ -390,33 +390,6 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="pricing" className="mx-auto w-full max-w-7xl px-4 pb-24 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-xl border border-[#d8ccc2] bg-[#eee6dd] p-8 shadow-[0_28px_80px_rgba(104,82,69,0.13)] sm:p-12 lg:p-16">
-          <div className="absolute -right-20 -top-32 h-80 w-80 rounded-full bg-[#c8b8b2]/40 blur-[100px]" />
-          <div className="absolute -bottom-32 left-1/3 h-64 w-64 rounded-full bg-[#7fa29e]/15 blur-[100px]" />
-          <div className="relative flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#6f928e]">04 / Start creating</p>
-              <h2 className="mt-4 font-display text-4xl font-extrabold tracking-[-0.04em] sm:text-5xl">
-                {t("pricing.title")}
-              </h2>
-              <p className="mt-5 text-base leading-7 text-[#6f6a64]">{t("pricing.description")}</p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Button size="lg" asChild className="h-12 px-6">
-                <Link href="/products/new">
-                  {t("home.primaryCta")}
-                  <ArrowRight />
-                </Link>
-              </Button>
-              <Button size="lg" variant="outline" asChild className="h-12 px-6">
-                <a href="#home">{t("common.contactSales")}</a>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <footer className="border-t border-[#ded4cb] bg-[#efe9e1]/60">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-8 text-sm text-[#6f6a64] sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <PixLoomWordmark className="text-2xl text-foreground" />
