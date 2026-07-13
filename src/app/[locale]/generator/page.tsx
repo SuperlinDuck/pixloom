@@ -1,3 +1,10 @@
+import { notFound } from "next/navigation"
+
+export default function GeneratorPage() {
+  notFound()
+}
+
+/* TODO: 正式上线商品图生成功能时恢复以下页面实现。
 import { useTranslations } from "next-intl"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -41,3 +48,4 @@ export default function GeneratorPage() {
     </main>
   )
 }
+*/

@@ -1,4 +1,10 @@
 import { NextResponse } from "next/server"
+
+export async function POST() {
+  return NextResponse.json({ error: "Not Found" }, { status: 404 })
+}
+
+/* TODO: 正式上线服装上身功能时恢复以下接口实现。
 import { z } from "zod"
 
 import { generateTryOnImage } from "@/lib/ai/gemini-image"
@@ -34,3 +40,4 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
+*/

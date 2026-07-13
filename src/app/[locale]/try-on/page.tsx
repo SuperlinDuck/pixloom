@@ -1,3 +1,10 @@
+import { notFound } from "next/navigation"
+
+export default function TryOnPage() {
+  notFound()
+}
+
+/* TODO: 正式上线服装上身功能时恢复以下页面实现。
 import { useTranslations } from "next-intl"
 
 import { Badge } from "@/components/ui/badge"
@@ -42,3 +49,4 @@ export default function TryOnPage() {
     </main>
   )
 }
+*/

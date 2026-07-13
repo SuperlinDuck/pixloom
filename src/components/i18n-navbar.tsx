@@ -49,6 +49,7 @@ export function I18nNavbar() {
               </NavigationMenuLink>
             </NavigationMenuItem>
 
+            {/* TODO: 正式上线商品图生成和服装上身功能时恢复以下导航入口。
             <NavigationMenuItem>
               <NavigationMenuLink asChild>
                 <Link href="/generator" className={pageLinkClassName("/generator")}>
@@ -64,6 +65,7 @@ export function I18nNavbar() {
                 </Link>
               </NavigationMenuLink>
             </NavigationMenuItem>
+            */}
 
             <NavigationMenuItem>
               <NavigationMenuLink asChild>
@@ -88,12 +90,14 @@ export function I18nNavbar() {
             <Link href="/" className="block rounded-md px-2 py-1 hover:bg-[#efe5db]">
               {t("common.home")}
             </Link>
+            {/* TODO: 正式上线商品图生成和服装上身功能时恢复以下导航入口。
             <Link href="/generator" className="block rounded-md px-2 py-1 hover:bg-[#efe5db]">
               {t("nav.workflow")}
             </Link>
             <Link href="/try-on" className="block rounded-md px-2 py-1 hover:bg-[#efe5db]">
               {t("nav.tryOn")}
             </Link>
+            */}
             <Link href="/pricing" className="block rounded-md px-2 py-1 hover:bg-[#efe5db]">
               {t("common.pricing")}
             </Link>
