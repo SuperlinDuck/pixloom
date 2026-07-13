@@ -1,12 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowRight, Check, Sparkles } from "lucide-react"
+import { Check, Sparkles } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { I18nNavbar } from "@/components/i18n-navbar"
 import { PixLoomWordmark } from "@/components/pixloom-wordmark"
-import { Button } from "@/components/ui/button"
-import { Link } from "@/i18n/routing"
 import { cn } from "@/lib/utils"
 
 type BillingCycle = "monthly" | "yearly"
@@ -123,6 +121,7 @@ export default function PricingPage() {
                 </ul>
               </div>
 
+              {/* TODO: 正式上线商品图生成功能时恢复以下入口。
               <Button
                 size="lg"
                 variant={plan.featured ? "default" : "outline"}
@@ -134,6 +133,7 @@ export default function PricingPage() {
                   <ArrowRight className="size-4" />
                 </Link>
               </Button>
+              */}
             </article>
           ))}
         </div>

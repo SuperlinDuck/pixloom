@@ -1,13 +1,10 @@
 "use client"
 
 import Image from "next/image"
-import { ChangeEvent, useMemo, useState } from "react"
+import { ChangeEvent, useState } from "react"
 import { useTranslations } from "next-intl"
 
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useRouter } from "@/i18n/routing"
-import { PRODUCT_DRAFT_STORAGE_KEY, ProductDraft } from "@/lib/product-draft"
 
 const categoryKeys = ["drinkware", "beauty", "fashion", "home"] as const
 const useCaseKeys = ["mainImage", "sceneImage", "sellingPoints", "detailSet"] as const
@@ -24,7 +21,6 @@ async function fileToDataUrl(file: File) {
 
 export function NewProductForm() {
   const t = useTranslations("newProduct")
-  const router = useRouter()
 
   const [productName, setProductName] = useState("")
   const [productDescription, setProductDescription] = useState("")
@@ -35,11 +31,6 @@ export function NewProductForm() {
   const [imageDataUrl, setImageDataUrl] = useState("")
   const [imageName, setImageName] = useState("")
   const [error, setError] = useState("")
-  const [isSaving, setIsSaving] = useState(false)
-
-  const isReady = useMemo(() => {
-    return productName.trim() && productDescription.trim() && imageDataUrl
-  }, [imageDataUrl, productDescription, productName])
 
   const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -64,6 +55,7 @@ export function NewProductForm() {
     }
   }
 
+  /* TODO: 正式上线商品图生成功能时恢复提交逻辑和下方提交按钮。
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -89,6 +81,7 @@ export function NewProductForm() {
     sessionStorage.setItem(PRODUCT_DRAFT_STORAGE_KEY, JSON.stringify(draft))
     router.push("/generator")
   }
+  */
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -98,7 +91,7 @@ export function NewProductForm() {
           <CardDescription>{t("form.description")}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="space-y-5" onSubmit={handleSubmit}>
+          <form className="space-y-5">
             <div className="space-y-2">
               <label className="text-sm font-medium" htmlFor="product-image-upload">
                 {t("form.image")}
@@ -213,9 +206,11 @@ export function NewProductForm() {
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
+            {/* TODO: 正式上线商品图生成功能时恢复以下入口。
             <Button type="submit" size="lg" disabled={isSaving || !isReady}>
               {isSaving ? t("form.saving") : t("form.submit")}
             </Button>
+            */}
           </form>
         </CardContent>
       </Card>

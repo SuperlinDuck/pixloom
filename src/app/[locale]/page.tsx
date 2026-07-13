@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import Image from "next/image"
 import {
-  ArrowRight,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -16,7 +15,6 @@ import {
   WandSparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Link } from "@/i18n/routing"
 import { I18nNavbar } from "@/components/i18n-navbar"
 import { PixLoomWordmark } from "@/components/pixloom-wordmark"
 
@@ -211,12 +209,14 @@ export default function Home() {
               {t("hero.description")}
             </p>
             <div className="mt-9 flex flex-wrap justify-center gap-3 lg:justify-start">
+              {/* TODO: 正式上线商品图生成功能时恢复以下入口。
               <Button size="lg" asChild className="h-12 px-6">
                 <Link href="/products/new">
                   {t("home.primaryCta")}
                   <ArrowRight />
                 </Link>
               </Button>
+              */}
               <Button size="lg" variant="outline" asChild className="h-12 px-6">
                 <a href="#workflow">{t("home.secondaryCta")}</a>
               </Button>
