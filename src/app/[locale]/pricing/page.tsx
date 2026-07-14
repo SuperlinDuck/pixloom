@@ -1,10 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Check, Sparkles } from "lucide-react"
+import { Check, Mail } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { I18nNavbar } from "@/components/i18n-navbar"
-import { PixLoomWordmark } from "@/components/pixloom-wordmark"
+import { SiteFooter } from "@/components/site-footer"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 type BillingCycle = "monthly" | "yearly"
@@ -29,11 +30,7 @@ export default function PricingPage() {
         <div className="pointer-events-none absolute left-1/2 top-8 h-72 w-72 -translate-x-1/2 rounded-full bg-[#c8b8b2]/35 blur-[110px]" />
         <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-20 text-center sm:px-6 sm:pb-20 sm:pt-24 lg:px-8">
           <div className="mx-auto flex max-w-3xl flex-col items-center">
-            <div className="flex items-center gap-2 rounded-full border border-[#d8ccc2] bg-white/50 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-[#8a7469] shadow-sm">
-              <Sparkles className="size-3.5" />
-              {t("eyebrow")}
-            </div>
-            <h1 className="mt-6 font-display text-5xl font-extrabold tracking-[-0.045em] sm:text-6xl">
+            <h1 className="font-display text-5xl font-extrabold tracking-[-0.045em] sm:text-6xl">
               {t("title")}
             </h1>
             <p className="mt-5 max-w-2xl text-base leading-7 text-[#6f6a64] sm:text-lg">
@@ -101,9 +98,9 @@ export default function PricingPage() {
                   <span className="pb-1.5 text-sm text-[#6f6a64]">/ {t(`billing.unit.${billingCycle}`)}</span>
                 </div>
                 <p className="mt-2 min-h-5 text-xs text-[#8a817a]">
-                  {billingCycle === "yearly"
+                  {plan.name !== "free" && (billingCycle === "yearly"
                     ? t(`plans.${plan.name}.yearlyNote`)
-                    : t("billing.monthlyNote")}
+                    : t("billing.monthlyNote"))}
                 </p>
               </div>
 
@@ -121,35 +118,31 @@ export default function PricingPage() {
                 </ul>
               </div>
 
-              {/* TODO: 正式上线商品图生成功能时恢复以下入口。
               <Button
                 size="lg"
                 variant={plan.featured ? "default" : "outline"}
                 className="mt-8 h-12 w-full"
                 asChild
               >
-                <Link href="/products/new">
+                <a href={`mailto:support@pixloom.io?subject=${encodeURIComponent(`PixLoom ${plan.name.toUpperCase()} Plan`)}`}>
                   {t(`plans.${plan.name}.cta`)}
-                  <ArrowRight className="size-4" />
-                </Link>
+                  <Mail className="size-4" />
+                </a>
               </Button>
-              */}
             </article>
           ))}
         </div>
 
         <div className="mt-10 rounded-lg border border-[#d8ccc2] bg-[#eee6dd]/75 px-6 py-5 text-center text-sm text-[#6f6a64] sm:px-8">
           <span className="font-semibold text-[#24211f]">{t("footer.title")}</span>{" "}
-          {t("footer.description")}
+          {t("footer.description")}{" "}
+          <a className="font-semibold text-foreground underline underline-offset-4" href="mailto:support@pixloom.io?subject=PixLoom%20Custom%20Plan">
+            support@pixloom.io
+          </a>
         </div>
       </section>
 
-      <footer className="border-t border-[#ded4cb] bg-[#efe9e1]/60">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-8 text-sm text-[#6f6a64] sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <PixLoomWordmark className="text-2xl text-foreground" />
-          <p>AI product imagery, tuned for commerce.</p>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   )
 }

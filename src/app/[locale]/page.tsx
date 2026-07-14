@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
 import Image from "next/image"
 import {
   Check,
@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ImageIcon,
   Layers3,
+  Mail,
   SlidersHorizontal,
   UploadCloud,
   Users,
@@ -16,10 +17,11 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { I18nNavbar } from "@/components/i18n-navbar"
-import { PixLoomWordmark } from "@/components/pixloom-wordmark"
+import { SiteFooter } from "@/components/site-footer"
 
 export default function Home() {
   const t = useTranslations()
+  const locale = useLocale()
 
   const workflow = [
     {
@@ -201,27 +203,32 @@ export default function Home() {
         <div className="pointer-events-none absolute left-1/2 top-20 h-80 w-80 -translate-x-1/2 rounded-full bg-[#c8b8b2]/30 blur-[120px]" />
         <div className="pointer-events-none absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-[#7fa29e]/10 blur-[110px]" />
         <div className="relative mx-auto grid w-full max-w-7xl items-center gap-14 px-4 py-14 sm:px-6 md:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(25rem,0.82fr)] lg:px-8 lg:py-20 xl:gap-20">
-          <div className="mx-auto flex max-w-5xl flex-col items-center text-center lg:items-start lg:text-left">
-            <h1 className="max-w-4xl font-display text-5xl font-extrabold leading-[1.04] tracking-[-0.045em] text-foreground sm:text-6xl md:text-[68px] xl:text-[78px]">
-              {t("hero.title")}
+          <div className="mx-auto flex max-w-5xl flex-col items-center text-center lg:mx-0 lg:items-start lg:text-left">
+            <h1
+              className={`max-w-4xl font-display font-extrabold leading-[1.04] tracking-[-0.045em] text-foreground ${
+                locale === "en"
+                  ? "text-2xl sm:text-[40px] md:text-[48px] lg:text-[48px] xl:text-[56px]"
+                  : "text-5xl sm:text-6xl md:text-[68px] xl:text-[78px]"
+              }`}
+            >
+              {t("hero.title").split("\n").map((line) => (
+                <span key={line} className="block whitespace-nowrap">
+                  {line}
+                </span>
+              ))}
             </h1>
             <p className="mt-7 max-w-2xl text-base leading-7 text-[#6f6a64] sm:text-lg">
               {t("hero.description")}
             </p>
             <div className="mt-9 flex flex-wrap justify-center gap-3 lg:justify-start">
-              {/* TODO: 正式上线商品图生成功能时恢复以下入口。
               <Button size="lg" asChild className="h-12 px-6">
-                <Link href="/products/new">
-                  {t("home.primaryCta")}
-                  <ArrowRight />
-                </Link>
-              </Button>
-              */}
-              <Button size="lg" variant="outline" asChild className="h-12 px-6">
-                <a href="#workflow">{t("home.secondaryCta")}</a>
+                <a href="mailto:support@pixloom.io?subject=PixLoom%20Early%20Access">
+                  {t("home.earlyAccessCta")}
+                  <Mail />
+                </a>
               </Button>
             </div>
-            <div className="mt-9 flex max-w-3xl flex-wrap justify-center gap-x-6 gap-y-3 text-sm text-[#6f6a64] lg:justify-start">
+            <div className="mt-9 grid w-fit grid-cols-[max-content_max-content] gap-x-6 gap-y-3 text-sm text-[#6f6a64]">
               {deliverables.map((item) => (
                 <div key={item} className="flex items-center gap-2">
                   <Check className="size-4 text-[#6f928e]" />
@@ -390,12 +397,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer className="border-t border-[#ded4cb] bg-[#efe9e1]/60">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-8 text-sm text-[#6f6a64] sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <PixLoomWordmark className="text-2xl text-foreground" />
-          <p>AI product imagery, tuned for commerce.</p>
-        </div>
-      </footer>
+      <SiteFooter />
     </main>
   )
 }

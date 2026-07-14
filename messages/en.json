@@ -3,7 +3,6 @@
     "home": "Home",
     "pricing": "Pricing",
     "navigation": "Navigation",
-    "contactSales": "Contact Sales",
     "tryNow": "Try Now",
     "viewPricing": "View Pricing"
   },
@@ -38,12 +37,12 @@
   },
   "hero": {
     "badge": "AI Product Visual Workflow",
-    "title": "AI product imagery, tuned for commerce",
+    "title": "AI product imagery,\ntuned for commerce",
     "description": "Upload a product and generate listing-ready main images, scene photos, and selling point visuals."
   },
   "home": {
     "primaryCta": "Upload Product to Start",
-    "secondaryCta": "View Workflow",
+    "earlyAccessCta": "Request Early Access",
     "workflowTitle": "Create a product image set in 3 steps",
     "workflowDescription": "The first version focuses on a new-user loop: upload product info, choose a use case and scene, then generate and export product visuals.",
     "deliverables": {
@@ -80,6 +79,18 @@
       }
     }
   },
+  "siteFooter": {
+    "operator": "PixLoom is an independently operated digital service.",
+    "supportLabel": "Customer support:",
+    "responseTime": "We typically respond within 2 business days.",
+    "legalNavigation": "Legal and support links",
+    "legalTitle": "Legal & Support",
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy",
+    "refund": "Refund & Dispute Policy",
+    "cancellation": "Cancellation Policy",
+    "rights": "All rights reserved."
+  },
   "features": {
     "title": "Features",
     "description": "Cover the entire product content generation workflow, making visual creation faster, more stable, and more commercially effective.",
@@ -111,7 +122,6 @@
     }
   },
   "pricing": {
-    "eyebrow": "Simple, transparent pricing",
     "title": "Choose your creative pace",
     "description": "From validating your first product idea to powering a team's daily launches. Upgrade or cancel at any time.",
     "billingLabel": "Choose billing cycle",
@@ -136,10 +146,9 @@
           "monthly": "0",
           "yearly": "0"
         },
-        "yearlyNote": "Free forever, no payment method required",
-        "cta": "Start for free",
+        "cta": "Join Waitlist",
         "features": {
-          "1": "20 image generations per month",
+          "1": "5 image generations per month",
           "2": "Main and scene image generation",
           "3": "3 product drafts",
           "4": "Standard generation speed",
@@ -150,13 +159,13 @@
         "name": "Plus",
         "description": "For solo sellers and creators producing launch assets often.",
         "prices": {
-          "monthly": "12",
-          "yearly": "120"
+          "monthly": "29",
+          "yearly": "290"
         },
-        "yearlyNote": "Equivalent to $10/month — save $24 yearly",
-        "cta": "Choose Plus",
+        "yearlyNote": "Equivalent to $24.17/month — save $58 yearly",
+        "cta": "Join Waitlist",
         "features": {
-          "1": "500 image generations per month",
+          "1": "200 image generations per month",
           "2": "Everything in Free",
           "3": "Main, scene, and selling point visuals",
           "4": "HD exports without watermarks",
@@ -168,13 +177,13 @@
         "name": "Pro",
         "description": "For brands and small teams scaling visual production.",
         "prices": {
-          "monthly": "32",
-          "yearly": "320"
+          "monthly": "59",
+          "yearly": "590"
         },
-        "yearlyNote": "Equivalent to $26.67/month — save $64 yearly",
-        "cta": "Choose Pro",
+        "yearlyNote": "Equivalent to $49.17/month — save $118 yearly",
+        "cta": "Join Waitlist",
         "features": {
-          "1": "2,000 image generations per month",
+          "1": "500 image generations per month",
           "2": "Everything in Plus",
           "3": "Detail page sets and batch generation",
           "4": "Up to 5 team members",
