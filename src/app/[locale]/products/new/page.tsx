@@ -3,6 +3,7 @@ import { useTranslations } from "next-intl"
 import { I18nNavbar } from "@/components/i18n-navbar"
 import { Badge } from "@/components/ui/badge"
 import { NewProductForm } from "@/components/new-product-form"
+import { SiteFooter } from "@/components/site-footer"
 
 export default function NewProductPage() {
   const t = useTranslations("newProduct")
@@ -21,6 +22,7 @@ export default function NewProductPage() {
 
         <NewProductForm />
       </section>
+      <SiteFooter />
     </main>
   )
 }

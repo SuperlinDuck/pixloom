@@ -3,7 +3,6 @@
     "home": "首页",
     "pricing": "定价",
     "navigation": "导航菜单",
-    "contactSales": "联系销售",
     "tryNow": "立即体验",
     "viewPricing": "查看定价"
   },
@@ -38,12 +37,12 @@
   },
   "hero": {
     "badge": "AI 商品营销图工作流",
-    "title": "AI product imagery, tuned for commerce",
-    "description": "Upload a product and generate listing-ready main images, scene photos, and selling point visuals."
+    "title": "为电商而生的\nAI 商品视觉",
+    "description": "上传商品，即可生成可直接用于上架的主图、场景图和卖点图。"
   },
   "home": {
     "primaryCta": "上传商品开始生成",
-    "secondaryCta": "查看工作流",
+    "earlyAccessCta": "申请试用",
     "workflowTitle": "三步完成一套商品图",
     "workflowDescription": "第一版先聚焦新用户闭环：上传商品、选择用途和场景、生成并导出商品图。",
     "deliverables": {
@@ -80,6 +79,18 @@
       }
     }
   },
+  "siteFooter": {
+    "operator": "PixLoom 是一项由个人独立运营的数字服务。",
+    "supportLabel": "客服邮箱：",
+    "responseTime": "我们通常会在 2 个工作日内回复。",
+    "legalNavigation": "法律与客服链接",
+    "legalTitle": "法律与支持",
+    "terms": "服务条款",
+    "privacy": "隐私政策",
+    "refund": "退款与争议政策",
+    "cancellation": "取消政策",
+    "rights": "保留所有权利。"
+  },
   "features": {
     "title": "产品介绍",
     "description": "覆盖商品内容生成全流程，让视觉素材创作更快、更稳、更具商业转化力。",
@@ -111,7 +122,6 @@
     }
   },
   "pricing": {
-    "eyebrow": "简单透明的定价",
     "title": "选择适合你的创作节奏",
     "description": "从验证第一个商品创意，到支撑团队持续上新。所有套餐都能随时升级或取消。",
     "billingLabel": "选择订阅周期",
@@ -125,7 +135,7 @@
         "yearly": "年"
       }
     },
-    "currency": "¥",
+    "currency": "$",
     "recommended": "最受欢迎",
     "includes": "套餐包含",
     "plans": {
@@ -136,10 +146,9 @@
           "monthly": "0",
           "yearly": "0"
         },
-        "yearlyNote": "永久免费，无需绑定支付方式",
-        "cta": "免费开始",
+        "cta": "加入候补名单",
         "features": {
-          "1": "每月 20 次图片生成",
+          "1": "每月 5 张图片生成",
           "2": "商品主图与场景图生成",
           "3": "3 个商品草稿",
           "4": "标准生成速度",
@@ -150,13 +159,13 @@
         "name": "Plus",
         "description": "适合个人卖家和创作者，高频制作上新素材。",
         "prices": {
-          "monthly": "69",
-          "yearly": "690"
+          "monthly": "29",
+          "yearly": "290"
         },
-        "yearlyNote": "折合 ¥57.5/月，每年节省 ¥138",
-        "cta": "选择 Plus",
+        "yearlyNote": "折合 $24.17/月，每年节省 $58",
+        "cta": "加入候补名单",
         "features": {
-          "1": "每月 500 次图片生成",
+          "1": "每月 200 张图片生成",
           "2": "包含 Free 全部能力",
           "3": "商品主图、场景图与卖点图",
           "4": "高清无水印导出",
@@ -168,13 +177,13 @@
         "name": "Pro",
         "description": "适合品牌与小型团队，规模化管理视觉生产。",
         "prices": {
-          "monthly": "199",
-          "yearly": "1990"
+          "monthly": "59",
+          "yearly": "590"
         },
-        "yearlyNote": "折合 ¥165.8/月，每年节省 ¥398",
-        "cta": "选择 Pro",
+        "yearlyNote": "折合 $49.17/月，每年节省 $118",
+        "cta": "加入候补名单",
         "features": {
-          "1": "每月 2,000 次图片生成",
+          "1": "每月 500 张图片生成",
           "2": "包含 Plus 全部能力",
           "3": "详情页套图与批量生成",
           "4": "最多 5 位团队成员",
