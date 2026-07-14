@@ -1,9 +1,9 @@
 module.exports = {
   apps: [{
-    name: 'flashloom',
+    name: 'pixloom',
     script: 'node_modules/next/dist/bin/next',
     args: 'start',
-    cwd: '/var/www/flashloom',
+    cwd: '/var/www/pixloom',
     instances: 'max',
     exec_mode: 'cluster',
     env: {

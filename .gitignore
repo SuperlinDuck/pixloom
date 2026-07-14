@@ -47,3 +47,7 @@ prisma/migrations/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local uploads (keep directory structure, ignore files)
+public/uploads/*
+!public/uploads/.gitkeep

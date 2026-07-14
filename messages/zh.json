@@ -1,0 +1,405 @@
+{
+  "common": {
+    "home": "首页",
+    "pricing": "定价",
+    "navigation": "导航菜单",
+    "contactSales": "联系销售",
+    "tryNow": "立即体验",
+    "viewPricing": "查看定价"
+  },
+  "auth": {
+    "login": "登录",
+    "logout": "退出登录",
+    "userAvatar": "用户头像"
+  },
+  "nav": {
+    "productImage": "商品图生成",
+    "sceneImage": "场景图生成",
+    "imageTools": "图片工具",
+    "workflow": "商品图生成",
+    "tryOn": "服装上身",
+    "features": "功能"
+  },
+  "productImageMenus": {
+    "mainImage": "商品主图",
+    "sellingPoints": "卖点图",
+    "detailPage": "详情页图"
+  },
+  "sceneImageMenus": {
+    "humanModel": "人物模特",
+    "petModel": "宠物模特",
+    "partialGeneration": "模特局部生成",
+    "replaceBackground": "替换背景"
+  },
+  "imageToolMenus": {
+    "removeBackground": "一键抠图",
+    "referenceGeneration": "参考图生成",
+    "logoGeneration": "Logo生成"
+  },
+  "hero": {
+    "badge": "AI 商品营销图工作流",
+    "title": "AI product imagery, tuned for commerce",
+    "description": "Upload a product and generate listing-ready main images, scene photos, and selling point visuals."
+  },
+  "home": {
+    "primaryCta": "上传商品开始生成",
+    "secondaryCta": "查看工作流",
+    "workflowTitle": "三步完成一套商品图",
+    "workflowDescription": "第一版先聚焦新用户闭环：上传商品、选择用途和场景、生成并导出商品图。",
+    "deliverables": {
+      "mainImage": "主图生成",
+      "sceneImage": "场景图生成",
+      "sellingPoints": "卖点图输出",
+      "detailSet": "详情页套图"
+    },
+    "heroCard": {
+      "title": "面向商品的出图场景",
+      "description": "不是从 Prompt 开始，而是从商品、类目和用途开始。",
+      "outputTitle": "首版输出",
+      "outputDescription": "围绕单个商品快速生成主图、场景图和卖点素材，适合刚开始上新和验证转化的卖家。"
+    },
+    "heroShowcase": {
+      "label": "商品图生成效果预览",
+      "input": "上传的商品参考图",
+      "outputs": {
+        "main": "生成的商品主图",
+        "scene": "生成的商品场景图",
+        "detail": "生成的卖点图"
+      }
+    },
+    "showcase": {
+      "title": "成品图展示",
+      "description": "用真实成品图预览主图、场景图和营销素材的最终呈现效果，适合首页快速建立视觉信任。",
+      "items": {
+        "hero": "首页主视觉",
+        "scene": "生活方式场景",
+        "detail": "详情页素材",
+        "social": "社媒推广图",
+        "marketplace": "平台商品卡",
+        "campaign": "营销活动图"
+      }
+    }
+  },
+  "features": {
+    "title": "产品介绍",
+    "description": "覆盖商品内容生成全流程，让视觉素材创作更快、更稳、更具商业转化力。",
+    "workflow": {
+      "productUpload": {
+        "title": "1. 上传商品并填写关键信息",
+        "description": "输入商品名称、描述、卖点和类目，让系统围绕你的商品组织后续生成。"
+      },
+      "sceneGeneration": {
+        "title": "2. 选择用途、场景和风格",
+        "description": "按主图、场景图、卖点图等真实电商任务出图，而不是面对空白 Prompt 输入框。"
+      },
+      "exportPack": {
+        "title": "3. 生成并导出整套素材",
+        "description": "得到首张结果预览，并为后续批量生成、平台适配和素材导出打下基础。"
+      }
+    },
+    "productImage": {
+      "title": "商品图生成",
+      "description": "输入商品信息，快速生成主图、卖点图和详情页图，覆盖完整电商素材链路。"
+    },
+    "sceneImage": {
+      "title": "场景图生成",
+      "description": "支持人物模特、宠物模特、局部重绘与背景替换，轻松打造高质感营销视觉。"
+    },
+    "collaboration": {
+      "title": "高效协作",
+      "description": "统一素材管理与版本留存，支持团队快速迭代，提升上新效率。"
+    }
+  },
+  "pricing": {
+    "eyebrow": "简单透明的定价",
+    "title": "选择适合你的创作节奏",
+    "description": "从验证第一个商品创意，到支撑团队持续上新。所有套餐都能随时升级或取消。",
+    "billingLabel": "选择订阅周期",
+    "billing": {
+      "monthly": "按月订阅",
+      "yearly": "按年订阅",
+      "save": "省 17%",
+      "monthlyNote": "按月付费，可随时取消",
+      "unit": {
+        "monthly": "月",
+        "yearly": "年"
+      }
+    },
+    "currency": "¥",
+    "recommended": "最受欢迎",
+    "includes": "套餐包含",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "description": "适合体验核心能力，完成第一组商品视觉。",
+        "prices": {
+          "monthly": "0",
+          "yearly": "0"
+        },
+        "yearlyNote": "永久免费，无需绑定支付方式",
+        "cta": "免费开始",
+        "features": {
+          "1": "每月 20 次图片生成",
+          "2": "商品主图与场景图生成",
+          "3": "3 个商品草稿",
+          "4": "标准生成速度",
+          "5": "社区支持"
+        }
+      },
+      "plus": {
+        "name": "Plus",
+        "description": "适合个人卖家和创作者，高频制作上新素材。",
+        "prices": {
+          "monthly": "69",
+          "yearly": "690"
+        },
+        "yearlyNote": "折合 ¥57.5/月，每年节省 ¥138",
+        "cta": "选择 Plus",
+        "features": {
+          "1": "每月 500 次图片生成",
+          "2": "包含 Free 全部能力",
+          "3": "商品主图、场景图与卖点图",
+          "4": "高清无水印导出",
+          "5": "优先生成队列",
+          "6": "无限商品草稿与历史记录"
+        }
+      },
+      "pro": {
+        "name": "Pro",
+        "description": "适合品牌与小型团队，规模化管理视觉生产。",
+        "prices": {
+          "monthly": "199",
+          "yearly": "1990"
+        },
+        "yearlyNote": "折合 ¥165.8/月，每年节省 ¥398",
+        "cta": "选择 Pro",
+        "features": {
+          "1": "每月 2,000 次图片生成",
+          "2": "包含 Plus 全部能力",
+          "3": "详情页套图与批量生成",
+          "4": "最多 5 位团队成员",
+          "5": "品牌风格与模板管理",
+          "6": "更高分辨率与优先队列",
+          "7": "专属邮件支持"
+        }
+      }
+    },
+    "footer": {
+      "title": "需要更大的生成额度或团队席位？",
+      "description": "联系我们获取企业方案，支持定制额度、权限管理与专属服务。"
+    }
+  },
+  "generator": {
+    "badge": "Gemini / Vertex AI",
+    "title": "商品图生成工作流",
+    "description": "从商品信息开始组织生成，而不是直接写 Prompt。你可以先选择用途、类目、场景和卖点，再生成首版商品图结果。",
+    "workflow": {
+      "step1Title": "上传商品信息",
+      "step1Description": "填写商品名称、描述和卖点，先确定你要服务的商品。",
+      "step2Title": "选择出图任务",
+      "step2Description": "按主图、场景图或卖点图等真实任务组织生成参数。",
+      "step3Title": "生成并预览结果",
+      "step3Description": "得到首张结果图和最终生成 Prompt，快速验证方向。",
+      "step1": "填写商品信息",
+      "step2": "选择场景与用途",
+      "step3": "生成首张商品图"
+    },
+    "form": {
+      "title": "新建一个商品生成任务",
+      "description": "先描述商品和卖点，再选择场景与导出目标，系统会自动拼接生成 Prompt。",
+      "productImage": "商品图预览",
+      "useCase": "生成用途",
+      "category": "商品类目",
+      "productName": "商品名称",
+      "productNamePlaceholder": "例如：316 不锈钢保温杯",
+      "productDescription": "商品描述",
+      "productDescriptionPlaceholder": "例如：一款轻量大容量的不锈钢保温杯，适合通勤和户外使用，强调金属质感与简洁设计",
+      "highlights": "核心卖点",
+      "highlightsPlaceholder": "可填写 2-4 条卖点，用分号或换行分隔",
+      "scene": "应用场景",
+      "style": "视觉风格",
+      "platform": "目标平台",
+      "aspectRatio": "图片比例",
+      "workflowTitle": "当前工作流",
+      "generating": "生成中...",
+      "generate": "生成商品图",
+      "generateFailed": "生成失败"
+    },
+    "useCases": {
+      "mainImage": "商品主图",
+      "sceneImage": "商品场景图",
+      "sellingPoints": "商品卖点图",
+      "detailSet": "商品详情页套图"
+    },
+    "categories": {
+      "drinkware": "杯壶水具",
+      "beauty": "美妆个护",
+      "fashion": "服饰配件",
+      "home": "家居日用"
+    },
+    "scenes": {
+      "studio": "白底影棚",
+      "kitchen": "厨房台面",
+      "livingRoom": "客厅家居",
+      "outdoor": "户外自然"
+    },
+    "styles": {
+      "studioShot": "高级棚拍",
+      "minimalist": "极简电商",
+      "lifestyle": "自然生活方式"
+    },
+    "result": {
+      "title": "生成结果预览",
+      "description": "当前先展示首张生成图，以及这次商品任务拼接出的最终 Prompt。",
+      "finalPrompt": "最终 Prompt",
+      "model": "模型",
+      "placeholder": "提交任务后，这里会展示首张生成图、最终 Prompt 和可延展的套图方向。",
+      "preview": {
+        "mainImageTitle": "主图预览",
+        "mainImageDescription": "用于验证商品主体、构图和平台展示效果。",
+        "sceneImageTitle": "场景图方向",
+        "sceneImageDescription": "下一步可以基于同一商品继续生成更多场景变体。",
+        "sellingPointsTitle": "卖点图方向",
+        "sellingPointsDescription": "后续可围绕卖点生成多张详情页图和营销图。"
+      },
+      "output": {
+        "mainImageTitle": "当前主图结果",
+        "mainImageDescription": "可继续微调平台、比例和风格。",
+        "sceneImageTitle": "可扩展场景图",
+        "sceneImageDescription": "基于同一商品切换更多生活化场景。",
+        "detailSetTitle": "可延展详情页套图",
+        "detailSetDescription": "把商品描述和卖点继续拆成详情页和卖点图素材。"
+      }
+    }
+  },
+  "newProduct": {
+    "badge": "新建商品",
+    "title": "先上传商品图，再进入生成工作流",
+    "description": "先把商品主体、类目和卖点准备好，再进入生成页做场景图、主图或卖点图。",
+    "form": {
+      "title": "创建一个商品草稿",
+      "description": "第一版先用本地草稿串联上传与生成流程，不依赖数据库也能完成体验闭环。",
+      "image": "上传商品图",
+      "imageHintTitle": "点击上传 1 张商品图",
+      "imageHintDescription": "建议使用清晰、主体完整的商品图，后续会在生成页作为商品参考预览。",
+      "imageTypeError": "请上传图片文件",
+      "imageReadError": "读取图片失败，请重试",
+      "requiredError": "请完善商品名称、描述并上传商品图",
+      "productName": "商品名称",
+      "productNamePlaceholder": "例如：316 不锈钢保温杯",
+      "category": "商品类目",
+      "productDescription": "商品描述",
+      "productDescriptionPlaceholder": "例如：一款适合通勤和户外使用的大容量保温杯，强调耐用、便携和金属质感",
+      "highlights": "核心卖点",
+      "highlightsPlaceholder": "可填写 2-4 条卖点，用分号或换行分隔",
+      "useCase": "优先生成用途",
+      "scene": "首选场景",
+      "saving": "保存中...",
+      "submit": "保存并进入生成页"
+    },
+    "preview": {
+      "title": "商品草稿预览",
+      "description": "上传完成后，下一步会把商品信息带入生成工作流。",
+      "empty": "上传商品图后，这里会显示你的商品预览。",
+      "nextTitle": "接下来会发生什么",
+      "step1": "带着商品图进入生成工作流",
+      "step2": "自动预填商品名称、描述、类目和用途",
+      "step3": "直接开始生成首张商品图"
+    },
+    "categories": {
+      "drinkware": "杯壶水具",
+      "beauty": "美妆个护",
+      "fashion": "服饰配件",
+      "home": "家居日用"
+    },
+    "useCases": {
+      "mainImage": "商品主图",
+      "sceneImage": "商品场景图",
+      "sellingPoints": "商品卖点图",
+      "detailSet": "商品详情页套图"
+    },
+    "scenes": {
+      "studio": "白底影棚",
+      "kitchen": "厨房台面",
+      "livingRoom": "客厅家居",
+      "outdoor": "户外自然"
+    }
+  },
+  "tryOn": {
+    "badge": "Gemini / Vertex AI",
+    "title": "服装上身效果图生成",
+    "description": "上传一张或多张服装图，选择模特的性别、年龄段、肤色和身材，快速生成贴合真实人体的服装上身效果图。",
+    "workflow": {
+      "step1Title": "上传服装图",
+      "step1Description": "支持一次上传多张服装参考图，尽量提供清晰、平铺或正面的服装图。",
+      "step2Title": "设置模特属性",
+      "step2Description": "选择模特性别、年龄段、肤色和身材，定制更贴合目标人群的上身效果。",
+      "step3Title": "生成并预览",
+      "step3Description": "得到首张服装上身效果图和最终生成 Prompt，快速验证方向。"
+    },
+    "form": {
+      "title": "新建服装上身任务",
+      "description": "先上传服装图并设置模特属性，系统会自动拼接生成 Prompt 并输出上身效果图。",
+      "clothingImages": "服装图",
+      "imageHintTitle": "点击上传服装图（支持多张）",
+      "imageHintDescription": "最多上传 {max} 张，建议使用清晰、主体完整的服装图。",
+      "removeImage": "移除图片",
+      "imageTypeError": "请上传图片文件",
+      "imageReadError": "读取图片失败，请重试",
+      "imageLimitError": "最多只能上传 {max} 张图片",
+      "requiredError": "请至少上传一张服装图",
+      "gender": "模特性别",
+      "ageGroup": "年龄段",
+      "skinTone": "肤色",
+      "bodyType": "身材",
+      "aspectRatio": "图片比例",
+      "prompt": "补充要求",
+      "promptPlaceholder": "可填写姿势、背景、风格等补充要求，例如：自然站姿、纯色背景、电商棚拍风",
+      "generating": "生成中...",
+      "generate": "生成上身效果图",
+      "generateFailed": "生成失败"
+    },
+    "gender": {
+      "female": "女性",
+      "male": "男性",
+      "neutral": "中性"
+    },
+    "ageGroup": {
+      "child": "儿童",
+      "teen": "青少年",
+      "youngAdult": "青年",
+      "adult": "成年",
+      "senior": "中老年"
+    },
+    "skinTone": {
+      "fair": "白皙",
+      "medium": "自然",
+      "tan": "小麦",
+      "deep": "深色"
+    },
+    "bodyType": {
+      "slim": "苗条",
+      "average": "标准",
+      "athletic": "健硕",
+      "curvy": "丰满",
+      "plus": "大码"
+    },
+    "result": {
+      "title": "生成结果预览",
+      "description": "当前先展示首张服装上身效果图，以及这次任务拼接出的最终 Prompt。",
+      "finalPrompt": "最终 Prompt",
+      "model": "模型",
+      "placeholder": "提交任务后，这里会展示服装上身效果图和最终 Prompt。"
+    }
+  },
+  "scenes": {
+    "studio": "白底影棚",
+    "kitchen": "厨房台面",
+    "livingRoom": "客厅家居",
+    "outdoor": "户外自然"
+  },
+  "metadata": {
+    "title": "PixLoom - AI 商品图生成平台",
+    "description": "通过 AI 技术为电商卖家快速生成高质量的商品展示图"
+  }
+}

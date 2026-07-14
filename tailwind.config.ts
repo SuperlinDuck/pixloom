@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss"
+import { fontFamily } from "tailwindcss/defaultTheme"
 
 const config = {
   darkMode: ["class"],
@@ -18,7 +19,15 @@ const config = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-dm-sans)", ...fontFamily.sans],
+        display: ["var(--font-bricolage)", ...fontFamily.sans],
+      },
       colors: {
+        signal: "hsl(var(--primary))",
+        iris: "#7B5CFF",
+        pulse: "#FA4CAE",
+        ink: "#090B13",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -57,6 +66,10 @@ const config = {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+      },
+      boxShadow: {
+        signal: "0 14px 32px rgba(138, 116, 105, 0.18)",
+        iris: "0 24px 80px rgba(104, 82, 69, 0.16)",
       },
       keyframes: {
         "accordion-down": {

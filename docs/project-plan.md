@@ -2,7 +2,7 @@
 
 ## 📋 项目概述
 
-**项目名称**: FlashLoom - AI 商品图生成平台
+**项目名称**: PixLoom - AI 商品图生成平台
 
 **核心功能**: 通过 AI 技术为电商卖家快速生成高质量的商品展示图
 
@@ -153,7 +153,7 @@
 ## 📁 项目结构
 
 ```
-flashloom/
+pixloom/
 ├── src/
 │   ├── app/                    # Next.js App Router
 │   │   ├── (auth)/            # 认证相关页面
@@ -279,4 +279,4 @@ flashloom/
 
 **文档版本**: v1.0  
 **最后更新**: 2026-04-01  
-**维护者**: FlashLoom Team
+**维护者**: PixLoom Team
