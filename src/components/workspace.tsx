@@ -54,23 +54,23 @@ async function api<T>(url: string, body?: unknown): Promise<T> {
 }
 const starters = [
   {
-    icon: '◷',
+    preview: 'timer',
     tag: '专注工作',
-    name: '给专注留一点空间',
+    name: '专注计时器',
     text: '创建一个番茄钟应用，支持开始、暂停、重置和切换专注/休息模式。使用温暖的米白色和橙色，界面简洁，适配手机。',
     color: 'peach',
   },
   {
-    icon: '▦',
+    preview: 'board',
     tag: '管理灵感',
-    name: '一个轻盈的任务看板',
+    name: '任务看板',
     text: '创建一个任务看板，包含待开始、进行中、已完成三列，支持添加、编辑、删除和移动任务。使用简洁的卡片设计和柔和绿色。',
     color: 'sage',
   },
   {
-    icon: '↗',
+    preview: 'portfolio',
     tag: '展示自己',
-    name: '让你的作品被看见',
+    name: '个人作品集',
     text: '创建一个独立设计师的个人作品集，包含介绍、作品网格、分类筛选和联系信息，采用大字号、黑白配色和明亮黄色点缀。',
     color: 'butter',
   },
@@ -345,7 +345,7 @@ export function Workspace() {
         disabled={busy}
         placeholder={
           landing
-            ? '描述你的想法，剩下的交给 Pixloom…'
+            ? '例如：做一个任务看板，支持添加任务、拖动分组，使用简洁的黑白配色…'
             : '继续描述你想修改的地方…'
         }
         onKeyDown={(e) => {
@@ -401,7 +401,10 @@ export function Workspace() {
           onClick={() => setMenu(false)}
         />
       )}
-      <aside className={`sidebar ${menu ? 'open' : ''}`}>
+      <aside
+        id="project-navigation"
+        className={`sidebar ${menu ? 'open' : ''}`}
+      >
         <button
           className="brand-button"
           aria-label="Pixloom 首页"
@@ -449,7 +452,10 @@ export function Workspace() {
                 disabled={busy}
                 key={p.id}
                 className={`project-link ${activeId === p.id ? 'active' : ''}`}
-                onClick={() => setActiveId(p.id)}
+                onClick={() => {
+                  setActiveId(p.id)
+                  setMenu(false)
+                }}
               >
                 <span className="project-glyph">{p.name.charAt(0)}</span>
                 <span>{p.name}</span>
@@ -489,8 +495,10 @@ export function Workspace() {
           <div className="breadcrumb">
             <button
               className="icon-button mobile-menu"
-              aria-label="打开导航"
-              onClick={() => setMenu(true)}
+              aria-label={menu ? '关闭项目导航' : '打开项目导航'}
+              aria-expanded={menu}
+              aria-controls="project-navigation"
+              onClick={() => setMenu(!menu)}
             >
               <Menu size={18} />
             </button>
@@ -501,7 +509,9 @@ export function Workspace() {
             </strong>
           </div>
           <div className="topbar-right">
-            <span className="prototype-tag">EARLY PREVIEW</span>
+            <span className="prototype-tag">
+              <span className="status-dot online" /> 本地工作空间
+            </span>
             <button
               className="icon-button"
               aria-label="运行配置"
@@ -515,17 +525,11 @@ export function Workspace() {
           <div className="landing">
             <div className="welcome">
               <div className="eyebrow">
-                <span className="asterisk">✳</span> AN IDEA IS ALL IT TAKES
+                <Sparkles size={15} /> 从一个想法开始
               </div>
-              <h1>
-                把想法，变成
-                <br />
-                <span>下一件作品。</span>
-              </h1>
+              <h1>你想构建什么？</h1>
               <p className="welcome-copy">
-                从一句描述开始，构建属于你的应用。
-                <br className="mobile-break" />
-                生成、预览、修改，在同一个空间里。
+                描述你的想法，生成应用，然后一起把细节打磨好。
               </p>
               {composer(true)}
               <div className="composer-caption">
@@ -552,10 +556,8 @@ export function Workspace() {
             </div>
             <section className="inspiration">
               <div className="section-heading">
-                <h2>从一点灵感开始</h2>
-                <span>
-                  小想法，也值得被实现 <span>↗</span>
-                </span>
+                <h2>从一个示例开始</h2>
+                <span>选择示例，填入需求</span>
               </div>
               <div className="starter-grid">
                 {starters.map((item) => (
@@ -568,9 +570,56 @@ export function Workspace() {
                     }}
                   >
                     <div className="starter-art">
-                      <span className="art-circle" />
-                      <span className="art-symbol">{item.icon}</span>
-                      <span className="art-grid" />
+                      <div
+                        className={`sample-preview sample-type-${item.preview}`}
+                        aria-hidden="true"
+                      >
+                        <div className="sample-chrome">
+                          <i />
+                          <i />
+                          <i />
+                          <span>{item.name}</span>
+                        </div>
+                        {item.preview === 'timer' ? (
+                          <div className="sample-timer">
+                            <span>专注时间</span>
+                            <strong>25:00</strong>
+                            <span className="sample-action">开始专注</span>
+                          </div>
+                        ) : item.preview === 'board' ? (
+                          <div className="sample-board">
+                            {['待开始', '进行中', '已完成'].map(
+                              (label, index) => (
+                                <div key={label}>
+                                  <span>{label}</span>
+                                  <i>
+                                    {
+                                      ['整理灵感', '设计首页', '确定方向'][
+                                        index
+                                      ]
+                                    }
+                                  </i>
+                                  <i>项目任务</i>
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        ) : (
+                          <div className="sample-portfolio">
+                            <span>DESIGNER & CREATOR</span>
+                            <strong>
+                              让好想法
+                              <br />
+                              成为好作品。
+                            </strong>
+                            <div>
+                              <i />
+                              <i />
+                              <i />
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div className="starter-info">
                       <span className="starter-tag">{item.tag}</span>
@@ -583,8 +632,8 @@ export function Workspace() {
             </section>
             <footer className="landing-footer">
               <Brand small />
-              <span>A little idea. A whole new possibility.</span>
-              <span>为创造而生</span>
+              <span>描述 · 构建 · 迭代</span>
+              <span>代码与版本保存在本机</span>
             </footer>
           </div>
         ) : (
@@ -597,7 +646,9 @@ export function Workspace() {
                   </span>
                   构建助手
                 </span>
-                <span className="agent-label">CODING AGENT</span>
+                <span className="agent-label">
+                  {activeTask ? stateLabels[activeTask.status] : '准备就绪'}
+                </span>
               </div>
               <div className="conversation" ref={conversation}>
                 {loading ? (
@@ -871,18 +922,13 @@ export function Workspace() {
                           <span className="illustration-spark">✳</span>
                         </div>
                         <h2>
-                          {activeTask
-                            ? '你的想法，正在成形'
-                            : '给想法一个落脚点'}
+                          {activeTask ? '你的想法，正在成形' : '应用预览'}
                         </h2>
                         <p>
                           {activeTask
                             ? '代码生成并通过检查后，应用会出现在这里。'
                             : '发送第一条需求，开始构建你的应用。'}
                         </p>
-                        <span className="preview-empty-label">
-                          BUILD SOMETHING THAT MATTERS
-                        </span>
                       </div>
                     )}
                   </div>
