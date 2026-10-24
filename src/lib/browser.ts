@@ -1,3 +1,4 @@
+import { cloudNetworkAllowed, readManifest } from './cloud/manifest'
 import { chromium, type FrameLocator, type Page } from 'playwright'
 import { existsSync } from 'node:fs'
 import { runtimePreviewHeaders } from './runtime/preview'
@@ -9,11 +10,19 @@ import {
 } from './browser-schema'
 import type { BuildAsset } from './types'
 
+export type CloudTransport = (request: {
+  url: string
+  method: string
+  headers: Record<string, string>
+  body: Buffer | null
+}) => Promise<{ status: number; headers: Record<string, string>; body: Buffer }>
+
 export type BrowserVerifier = (
   artifactId: string,
   assets: BuildAsset[],
   steps: BrowserStep[],
   signal: AbortSignal,
+  cloudTransport?: CloudTransport,
 ) => Promise<BrowserReport>
 
 async function perform(frame: FrameLocator, step: BrowserStep) {
@@ -71,10 +80,13 @@ export const verifyBrowser: BrowserVerifier = async (
   assets,
   steps,
   signal,
+  cloudTransport,
 ) => {
   if (steps.length) browserTestSchema.parse({ steps })
   if (!/^[a-zA-Z0-9-]+$/.test(artifactId)) throw new Error('预览标识无效')
   const validated = validateAssets(assets)
+  const cloud = readManifest(validated.assets)
+  const backendOrigin = cloud?.[cloud.environment].url
   signal.throwIfAborted()
   const origin = 'http://127.0.0.1:4173'
   const prefix = `/api/previews/${artifactId}/`
@@ -126,6 +138,46 @@ export const verifyBrowser: BrowserVerifier = async (
     await context.route('**/*', async (route) => {
       const request = route.request()
       const url = new URL(request.url())
+      if (
+        backendOrigin &&
+        cloudNetworkAllowed(url, backendOrigin) &&
+        ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'].includes(
+          request.method(),
+        ) &&
+        (cloud?.environment !== 'production' ||
+          ['GET', 'OPTIONS'].includes(request.method()))
+      ) {
+        try {
+          if ((request.postDataBuffer()?.length || 0) > 1024 * 1024)
+            throw new Error('请求过大')
+          if (cloudTransport) {
+            const response = await cloudTransport({
+              url: request.url(),
+              method: request.method(),
+              headers: request.headers(),
+              body: request.postDataBuffer(),
+            })
+            if (
+              (response.status >= 300 && response.status < 400) ||
+              response.body.length > 2 * 1024 * 1024
+            )
+              throw new Error('后端响应无效')
+            return await route.fulfill(response)
+          }
+          const response = await route.fetch({
+            maxRedirects: 0,
+            timeout: 10000,
+          })
+          if (response.status() >= 300 && response.status() < 400)
+            throw new Error('禁止后端重定向')
+          const body = await response.body()
+          if (body.length > 2 * 1024 * 1024) throw new Error('响应过大')
+          return await route.fulfill({ response, body })
+        } catch {
+          record('绑定的 Cloud 请求失败或超过限制')
+          return route.abort()
+        }
+      }
       if (request.method() !== 'GET' || url.origin !== origin) {
         record('阻止了候选页面的外部请求或非 GET 请求')
         return route.abort()
@@ -154,7 +206,11 @@ export const verifyBrowser: BrowserVerifier = async (
         return route.abort()
       }
       return route.fulfill({
-        headers: runtimePreviewHeaders(new Request(url), asset.contentType),
+        headers: runtimePreviewHeaders(
+          new Request(url),
+          asset.contentType,
+          backendOrigin,
+        ),
         body: asset.body,
       })
     })

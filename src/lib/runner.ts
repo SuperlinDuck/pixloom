@@ -1,3 +1,6 @@
+import { CloudDefinitionError } from './cloud/errors'
+import { cleanupTestAccount } from './cloud/test-account'
+import { prepareCandidate, runCloudOperation } from './cloud/backend'
 import { runCodingAgent, AGENT_LIMITS } from './ai/agent'
 import { providerFor, type ModelProvider } from './ai/provider'
 import { randomUUID } from 'node:crypto'
@@ -58,6 +61,16 @@ export async function runTask(
         verify: browserVerifier,
         runtime: publicationRuntime,
       })
+      return
+    }
+    if (task.kind === 'cloud_setup') {
+      await runCloudOperation(task, {
+        signal: controller.signal,
+        check: () => {
+          if (!active()) throw new Error('操作已中断')
+        },
+      })
+      if (active()) finishTask(task)
       return
     }
     if (task.kind === 'agent') {
@@ -148,14 +161,30 @@ export async function runTask(
           )
           if (!active()) throw new Error('操作已中断')
           if (result.timedOut) throw new Error('构建超过时限，已终止')
+          let assets
+          if (result.exitCode === 0) {
+            try {
+              assets = await prepareCandidate(
+                task,
+                await runtime.exportBuild(id, controller.signal),
+                {
+                  signal: controller.signal,
+                  check: () => {
+                    if (!active()) throw new Error('操作已中断')
+                  },
+                },
+              )
+            } catch (error) {
+              if (error instanceof CloudDefinitionError)
+                return { artifactId, ok: false, output: error.message }
+              throw error
+            }
+          }
           return {
             artifactId,
             ok: result.exitCode === 0,
             output: result.output,
-            assets:
-              result.exitCode === 0
-                ? await runtime.exportBuild(id, controller.signal)
-                : undefined,
+            assets,
           }
         },
       })
@@ -179,7 +208,16 @@ export async function runTask(
           : `构建失败（退出码 ${result.exitCode}），请查看日志并修改草稿`,
       )
     if (!active()) throw new Error('操作已中断')
-    const assets = await runtime.exportBuild(id, controller.signal)
+    const assets = await prepareCandidate(
+      task,
+      await runtime.exportBuild(id, controller.signal),
+      {
+        signal: controller.signal,
+        check: () => {
+          if (!active()) throw new Error('操作已中断')
+        },
+      },
+    )
     if (!active()) throw new Error('操作已中断')
     completeBuild(task, templateId, artifactId, assets, owner)
   } catch (error) {
@@ -207,5 +245,6 @@ export async function runTask(
     clearTimeout(timeout)
     clearInterval(poll)
     shutdown?.removeEventListener('abort', abort)
+    await cleanupTestAccount(task.id)
   }
 }

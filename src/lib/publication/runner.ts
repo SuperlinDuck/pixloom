@@ -1,3 +1,7 @@
+import { configureProductionAuth } from '../cloud/provision'
+import { syncBackend } from '../cloud/backend'
+import { productionAssets, readManifest } from '../cloud/manifest'
+import { getVersion } from '../store'
 import { artifactDelivery, addEvent, transaction } from '../store'
 import type { Task } from '../types'
 import type { BrowserVerifier } from '../browser'
@@ -91,10 +95,26 @@ export async function runPublication(
       release.templateId,
     ),
   )
+  const cloud = readManifest(assets)
+  if (cloud) {
+    addEvent(task, '准备此版本绑定的生产数据库、权限和函数；业务数据保留')
+    await syncBackend(
+      task.projectId,
+      getVersion(task.projectId, release.versionId).files,
+      'production',
+      { signal: options.signal, check },
+      cloud,
+    )
+    await configureProductionAuth(task.projectId, release.url, {
+      signal: options.signal,
+      check,
+    })
+    check()
+  }
   addEvent(task, '暂存固定版本的构建产物，保留当前线上版本')
   const staged = await runtime.stage(
     release,
-    assets,
+    productionAssets(assets),
     task.attemptId!,
     options.signal,
   )

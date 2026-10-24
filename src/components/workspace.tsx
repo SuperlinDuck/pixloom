@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Box,
+  Cloud,
   Hammer,
   Check,
   ChevronRight,
@@ -44,6 +45,7 @@ import { isActive } from '@/lib/types'
 import { diffFiles } from '@/lib/diff'
 import { useWorkspaceDialog } from './workspace-dialog'
 import { WorkspaceAccount, useWorkspaceAccount } from './workspace-account'
+import { WorkspaceCloud } from './workspace-cloud'
 import { MarkdownReply } from './markdown-reply'
 import type { DockerHealth } from '@/lib/runtime/types'
 
@@ -124,7 +126,7 @@ export function Workspace() {
     [files, setFiles] = useState<SourceFile[]>([])
   const [file, setFile] = useState('src/App.jsx'),
     [tab, setTab] = useState<
-      'preview' | 'code' | 'diff' | 'runtime' | 'publish'
+      'preview' | 'code' | 'diff' | 'runtime' | 'cloud' | 'publish'
     >('preview')
   const [publication, setPublication] = useState<Publication | null>(null)
   const [history, setHistory] = useState(false),
@@ -171,6 +173,15 @@ export function Workspace() {
     if (!canAccess) {
       setProjectId(null)
       setProjects([])
+      return
+    }
+    const cloudProject = new URL(window.location.href).searchParams.get(
+      'cloudProject',
+    )
+    if (cloudProject && /^[a-f0-9-]{36}$/.test(cloudProject)) {
+      setProjectId(cloudProject)
+      setTab('cloud')
+      window.history.replaceState(null, '', window.location.pathname)
       return
     }
     const remembered = localStorage.getItem('pixloom-v3-project')
@@ -1128,7 +1139,14 @@ export function Workspace() {
               <div className="preview-toolbar">
                 <div className="tabs">
                   {(
-                    ['preview', 'code', 'diff', 'runtime', 'publish'] as const
+                    [
+                      'preview',
+                      'code',
+                      'diff',
+                      'runtime',
+                      'cloud',
+                      'publish',
+                    ] as const
                   ).map((key, i) => (
                     <button
                       key={key}
@@ -1144,10 +1162,11 @@ export function Workspace() {
                           <Code2 size={14} key="c" />,
                           <GitCompareArrows size={14} key="d" />,
                           <Box size={14} key="r" />,
+                          <Cloud size={14} key="cloud" />,
                           <Rocket size={14} key="s" />,
                         ][i]
                       }
-                      {['预览', '源码', '差异', '环境', '发布'][i]}
+                      {['预览', '源码', '差异', '环境', '云后端', '发布'][i]}
                     </button>
                   ))}
                 </div>
@@ -1316,8 +1335,20 @@ export function Workspace() {
                     )}
                   </div>
                   <div className="preview-status">
-                    <span>隔离预览 · 无外部网络</span>
-                    <span>草稿修改不影响当前预览</span>
+                    <span>
+                      {shown?.files.some(
+                        (file) => file.path === 'src/pixloom-cloud.js',
+                      )
+                        ? '隔离预览 · 仅连接绑定的开发后端'
+                        : '隔离预览 · 无外部网络'}
+                    </span>
+                    <span>
+                      {shown?.files.some(
+                        (file) => file.path === 'src/pixloom-cloud.js',
+                      )
+                        ? '源码预览固定 · 开发数据由各版本共享'
+                        : '草稿修改不影响当前预览'}
+                    </span>
                   </div>
                 </>
               )}
@@ -1525,6 +1556,15 @@ export function Workspace() {
                     固定依赖 · 无网络 · 非 root · 512 MiB 内存 · 1 CPU
                   </p>
                 </div>
+              )}
+              {tab === 'cloud' && projectId && (
+                <WorkspaceCloud
+                  key={projectId}
+                  projectId={projectId}
+                  locked={busy || !!active}
+                  workerOnline={ready}
+                  onQueued={refresh}
+                />
               )}
               {tab === 'publish' && (
                 <div className="publication-panel">

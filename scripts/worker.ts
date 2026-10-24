@@ -1,3 +1,4 @@
+import { cleanupOrphanedTestAccounts } from '../src/lib/cloud/test-account'
 import { loadEnvConfig } from '@next/env'
 import { randomUUID } from 'node:crypto'
 import {
@@ -21,6 +22,7 @@ async function main() {
     if (!heartbeat(owner)) shutdown.abort()
   }, 3000)
   try {
+    await cleanupOrphanedTestAccounts()
     while (!shutdown.signal.aborted) {
       const task = claimTask(owner)
       if (task) await runTask(task, undefined, shutdown.signal, owner)

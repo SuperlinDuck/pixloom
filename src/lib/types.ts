@@ -51,6 +51,7 @@ export type TaskKind =
   | 'remove'
   | 'publish'
   | 'unpublish'
+  | 'cloud_setup'
 export type TaskStatus =
   'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type TaskEvent = {

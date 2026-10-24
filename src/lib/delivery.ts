@@ -1,3 +1,4 @@
+import { readManifest, CLOUD_CONFIG_PATH } from './cloud/manifest'
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -21,10 +22,12 @@ export async function exportVersion(projectId: string, versionId: string) {
     preview: 'vite preview --host 127.0.0.1',
   }
   const json = (value: unknown) => JSON.stringify(value, null, 2) + '\n'
+  const cloud = readManifest(assets)
   const files: ArchiveFile[] = []
   const add = (name: string, content: string | Buffer) =>
     files.push({ path: name, body: Buffer.from(content) })
   for (const file of version.files) add(`source/${file.path}`, file.content)
+  if (cloud) add(`source/public/${CLOUD_CONFIG_PATH}`, json(cloud))
   add('source/package.json', json(pkg))
   add('source/package-lock.json', lock)
   add(
@@ -78,7 +81,7 @@ site/api/previews/ 是保留原构建资源路径的静态目录，不需要运�
 
 导出不会重新构建、运行模型或补做验证。手工版本仅保证构建通过；AI 行为验证仅覆盖当时的测试断言。
 独立托管时不会自动携带 Pixloom 的 iframe sandbox/CSP 隔离策略，正式上线前需审核应用并配置目标站点的安全策略。
-应用数据持久化、后端、登录及数据库不会由导出自动提供；本包不包含业务数据。
+${cloud ? '本版本已绑定 Cloud 开发后端。site/ 与 source/public/pixloom-cloud.json 默认连接该开发环境，包含公开配置，不包含管理凭证。业务数据、用户和文件仍位于原 Supabase 资源，本包不复制这些数据，也不会自动创建或迁移后端。生产发布使用独立的生产环境；导出不等于发布。' : '应用数据持久化、后端、登录及数据库不会由导出自动提供；本包不包含业务数据。'}
 本包是交付文件，不代表已经发布到公网。
 `,
   )

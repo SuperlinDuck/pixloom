@@ -22,7 +22,10 @@
     "agent:doctor": "tsx scripts/agent-doctor.ts",
     "agent:verify": "tsx scripts/verify-agent.ts",
     "browser:install": "playwright install chromium",
-    "browser:verify": "PIXLOOM_BROWSER_TESTS=1 vitest run tests/browser.test.ts"
+    "browser:verify": "PIXLOOM_BROWSER_TESTS=1 vitest run tests/browser.test.ts",
+    "cloud:verify": "PIXLOOM_CLOUD_TESTS=1 vitest run tests/cloud.test.ts tests/cloud-browser.test.ts",
+    "cloud:verify-db": "node --import tsx scripts/verify-cloud-db.ts",
+    "cloud:verify-runtime": "PIXLOOM_CLOUD_RUNTIME_TESTS=1 vitest run tests/cloud-runtime.test.ts"
   },
   "dependencies": {
     "@next/env": "^14.2.35",

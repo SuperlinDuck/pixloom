@@ -1,4 +1,4 @@
-# Pixloom v0.3 架构
+# Pixloom 架构：多文件工作空间与 Cloud
 
 当前统一为 React/Vite 多文件项目。旧 HTML 生成、HTML 版本和 `srcDoc` 预览路径已移除。
 
@@ -69,7 +69,7 @@ React 工作台
 
 ## 范围
 
-已实现模板、手工编辑与 Coding Agent 多文件版本闭环。Agent 复用候选文件、统一任务与提交协议；任务 kind/source 均标记 agent，模型、需求和预算存于 tasks.agent JSON 列。现有 v3 数据库自动添加可空 agent 列，无需清空数据库。失败候选源码通过终态任务接口按需读取，界面可载入编辑器后保存；不会自动覆盖草稿。Gemini 真实模型工具循环与人工浏览器交互验收已通过；GPT 仅完成模拟协议测试。自动浏览器验证与单机静态发布已接入；HMR、独立开发预览域、认证和全栈发布属于后续阶段。
+已实现模板、手工编辑与 Coding Agent 多文件版本闭环。Agent 复用候选文件、统一任务与提交协议；任务 kind/source 均标记 agent，模型、需求和预算存于 tasks.agent JSON 列。现有 v3 数据库自动添加可空 agent 列，无需清空数据库。失败候选源码通过终态任务接口按需读取，界面可载入编辑器后保存；不会自动覆盖草稿。Gemini 真实模型工具循环与人工浏览器交互验收已通过；GPT 仅完成模拟协议测试。自动浏览器验证与单机静态发布已接入；已有绑定整个工作空间的单账号 Google 登录；HMR、独立开发预览域、多用户授权和通用应用服务器托管仍需扩展。新的双模式 Cloud 设计见 [Pixloom Cloud 与自有 Supabase](cloud.md)：默认平台分配资源，同时支持用户 OAuth 连接自有资源，工程实现统一由一个全栈 Engineer 完成。
 
 完整接口与决策见 [实施方案](workspace-versions-plan.md)，运行与容器边界见 [Docker 执行环境](docker-runtime.md)。
 
@@ -88,3 +88,13 @@ Gemini 3 使用 `thinkingLevel: low`，将受限任务的时间和输出预算�
 `src/lib/browser.ts` 在宿主使用独立无头 Chromium 验证尚未提交的构建产物；请求由 Playwright 拦截直接提供本次资源，不依赖运行中的 Web、不提前写入预览表。包装页面使用 sandbox iframe，产物复用正式 `runtimePreviewHeaders`。Service Worker、WebSocket、外部请求及主页面跳转受限。浏览器不继承模型密钥，不读取个人 profile，每次运行关闭并清理。
 
 Agent 的 `build` 成功后执行加载检查；`browser_test` 接受严格验证的有界动作和断言，在最新候选 hash 上成功后才允许完成。源码变化使旧测试结果失效。页面错误、控制台错误、断言失败返回模型修复；环境故障直接报告任务失败。失败计数保存在 Agent JSON 中，重启不重置；取消/超时关闭浏览器且继续遵守提交时 attempt 与基线校验。测试只覆盖给定步骤，不能替代人工需求验收。手工构建/历史恢复不自动重测，沿用原有编译验证语义。
+
+## 双模式 Cloud 后端
+
+已接入 [Pixloom Cloud 与自有 Supabase](cloud.md)。默认内置模式以平台组织分配资源，可选模式以 OAuth 授权绑定用户项目，两者共用一个全栈 Engineer 工具循环。控制状态仍在 SQLite，业务用户/数据/文件/函数位于绑定的 Supabase 项目。
+
+`cloud_bindings`、`cloud_resources` 保存提供方与独立开发/生产资源；`cloud_preferences` 保存尚未绑定时的选择；OAuth token 和临时测试密码使用 AES-256-GCM 加密。`cloud_setup` 沿用统一任务锁，资源创建前预留，响应未确认时先查询已有资源，禁止盲目重复创建。取消和重启不能撤回已发出的远程请求，已创建资源会保留。
+
+Engineer 通过 `cloud_enable`、`cloud_schema`、`cloud_test_account` 使用后端。schema 与函数属于源码快照；构建同步开发定义并追加 `pixloom-cloud.json` 公开配置。预览仅放行绑定开发项目的端点，构建容器仍无网络。测试身份仅在开发环境创建，日志与回复脱敏，任务结束删除；清理失败记录为 pending，工作台提示，Worker 启动时重试。
+
+发布同步生产定义并将暂存配置切换到生产；管理凭证不进入产物。函数使用内容 hash 命名，历史版本继续调用其原函数。数据库迁移为添加式，回滚代码不会删列、恢复数据或撤回外部动作。导出包含源码、后端定义和公开配置，不复制业务数据；重新构建的源码项目包含相同开发环境配置。

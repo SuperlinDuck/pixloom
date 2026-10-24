@@ -1,9 +1,23 @@
-import { addEvent, checkpointAgent } from '../store'
+import {
+  cloudTestAccount,
+  redactTestCredentials,
+  assertNoTestCredentials,
+} from '../cloud/test-account'
+import { enableCloud, inspectSchema } from '../cloud/backend'
+import { addEvent as storeAddEvent, checkpointAgent } from '../store'
 import { applyOperations, snapshot } from '../workspace-files'
 import type { BuildAsset, Task } from '../types'
 import type { ModelProvider } from './provider'
 import { agentTools, type AgentInput, type ToolCall } from './tools'
 import type { BrowserStep, BrowserReport } from '../browser-schema'
+
+function addEvent(
+  task: Task,
+  message: string,
+  metadata: Parameters<typeof storeAddEvent>[2] = {},
+) {
+  storeAddEvent(task, redactTestCredentials(task.id, message), metadata)
+}
 
 export const AGENT_LIMITS = {
   steps: 24,
@@ -113,6 +127,18 @@ export async function runCodingAgent(
       return f.content
     }
     switch (call.name) {
+      case 'cloud_test_account':
+        return cloudTestAccount(task, { signal: options.signal, check })
+      case 'cloud_enable': {
+        const result = await enableCloud(task, {
+          signal: options.signal,
+          check,
+        })
+        checkpointAgent(task, options.owner)
+        return result
+      }
+      case 'cloud_schema':
+        return inspectSchema(task.projectId, options.signal)
       case 'list_files':
         return files.map((f) => ({
           path: f.path,
@@ -183,6 +209,7 @@ export async function runCodingAgent(
               { type: 'write', path: args.path, content },
             ])
           }
+          assertNoTestCredentials(task.id, next.files)
         } catch (error) {
           return { error: (error as Error).message }
         }

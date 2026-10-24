@@ -63,6 +63,14 @@ export function db() {
     CREATE TABLE IF NOT EXISTS auth_account (id INTEGER PRIMARY KEY CHECK(id=1),subject TEXT NOT NULL UNIQUE,name TEXT NOT NULL,email TEXT NOT NULL,picture TEXT);
     CREATE TABLE IF NOT EXISTS auth_sessions (tokenHash TEXT PRIMARY KEY,expiresAt INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_flows (tokenHash TEXT PRIMARY KEY,state TEXT NOT NULL,nonce TEXT NOT NULL,verifier TEXT NOT NULL,expiresAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_connections (id TEXT PRIMARY KEY,accessToken TEXT NOT NULL,refreshToken TEXT NOT NULL,expiresAt INTEGER NOT NULL,refreshLease TEXT,refreshUntil INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS cloud_oauth_flows (tokenHash TEXT PRIMARY KEY,state TEXT NOT NULL,verifier TEXT NOT NULL,sessionHash TEXT NOT NULL,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,expiresAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_bindings (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,mode TEXT NOT NULL,status TEXT NOT NULL,error TEXT,connectionId TEXT REFERENCES cloud_connections(id),updatedAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_resources (projectId TEXT NOT NULL REFERENCES cloud_bindings(projectId),environment TEXT NOT NULL,ref TEXT UNIQUE,name TEXT NOT NULL UNIQUE,status TEXT NOT NULL,publishableKey TEXT,password TEXT,PRIMARY KEY(projectId,environment));
+    CREATE TABLE IF NOT EXISTS cloud_preferences (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,mode TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_operations (taskId TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,input TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_test_accounts (taskId TEXT PRIMARY KEY REFERENCES tasks(id),projectId TEXT NOT NULL,ref TEXT NOT NULL,email TEXT NOT NULL UNIQUE,password TEXT NOT NULL,userId TEXT,status TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_deployments (ref TEXT NOT NULL,kind TEXT NOT NULL,name TEXT NOT NULL,hash TEXT NOT NULL,updatedAt TEXT NOT NULL,PRIMARY KEY(ref,kind,name));
     PRAGMA user_version=3;
   `)
   if (
@@ -397,6 +405,7 @@ export function insertTask(
       remove: '移除容器',
       publish: `发布版本 v${target?.number}`,
       unpublish: '下线应用',
+      cloud_setup: '准备云后端',
     }[kind]
   db()
     .prepare(

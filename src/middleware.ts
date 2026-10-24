@@ -8,7 +8,9 @@ export function middleware(request: NextRequest) {
     /^\/api\/previews\/[a-f0-9-]{36}(?:\/|$)/.test(request.nextUrl.pathname)
   const googleCallback =
     request.method === 'GET' &&
-    request.nextUrl.pathname === '/api/auth/callback/google'
+    ['/api/auth/callback/google', '/api/cloud/supabase/callback'].includes(
+      request.nextUrl.pathname,
+    )
   if (
     !workspaceRequestOrigin(request) ||
     (request.headers.get('sec-fetch-site') === 'cross-site' &&

@@ -69,7 +69,7 @@ describe('preview origin boundary', () => {
         }),
         'text/html',
       ),
-    ).toThrow('本机 Host')
+    ).toThrow('预览地址未获允许')
   })
 })
 

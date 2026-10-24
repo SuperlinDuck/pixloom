@@ -296,11 +296,11 @@ describe('Google server login', () => {
     ).toBe(200)
   })
 
-  it('only allows the pinned local callback origin and fails closed for partial configuration', async () => {
+  it('requires the configured callback origin and fails closed for partial configuration', async () => {
     expect(
       (await loginGET(new Request('http://localhost:3000/api/auth/google')))
         .status,
-    ).toBe(503)
+    ).toBe(400)
     vi.stubEnv(
       'PIXLOOM_AUTH_URL',
       'https://pixloom.io/api/auth/callback/google',

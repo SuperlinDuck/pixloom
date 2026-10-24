@@ -1,3 +1,4 @@
+import { artifactManifest } from '../cloud/manifest'
 import {
   createServer,
   type IncomingMessage,
@@ -7,11 +8,19 @@ import { publicationConfig, type PublicationConfig } from './config'
 import { PublicationFiles } from './files'
 import { installationId, siteForDomain, wasPublished } from './store'
 
-export function publishedHeaders(contentType: string, immutable = false) {
+export function publishedHeaders(
+  contentType: string,
+  immutable = false,
+  backendOrigin?: string,
+) {
+  if (
+    backendOrigin &&
+    !/^https:\/\/[a-z]{20}\.supabase\.co$/.test(backendOrigin)
+  )
+    throw new Error('发布后端配置无效')
   return {
     'Content-Type': contentType,
-    'Content-Security-Policy':
-      "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-src 'none'; object-src 'none'; frame-ancestors 'none'",
+    'Content-Security-Policy': `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: ${backendOrigin ? 'blob: ' + backendOrigin : ''}; font-src 'self' data:; connect-src 'self' ${backendOrigin || ''}; form-action 'self'; base-uri 'none'; frame-src 'none'; object-src 'none'; frame-ancestors 'none'`,
     'Cache-Control': immutable
       ? 'public, max-age=31536000, immutable'
       : 'no-store',
@@ -120,7 +129,11 @@ export function gatewayHandler(
       }
       const asset = await files.readAsset(site.projectId, artifactId, file)
       res.writeHead(200, {
-        ...publishedHeaders(asset.contentType, immutable),
+        ...publishedHeaders(
+          asset.contentType,
+          immutable,
+          artifactManifest(artifactId)?.production.url,
+        ),
         'Content-Length': asset.body.length,
       })
       res.end(req.method === 'HEAD' ? undefined : asset.body)

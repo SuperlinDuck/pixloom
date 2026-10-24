@@ -3435,3 +3435,129 @@ h1 {
     max-width: 100%;
   }
 }
+
+.cloud-panel {
+  padding: 28px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+.cloud-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.cloud-heading h2 {
+  margin: 0 0 6px;
+  font-size: 21px;
+}
+.cloud-heading p,
+.cloud-panel > p,
+.cloud-external p {
+  color: #737777;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.cloud-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.cloud-modes button {
+  text-align: left;
+  border: 1px solid #e1e3df;
+  border-radius: 12px;
+  padding: 18px;
+  background: #fff;
+  display: grid;
+  gap: 10px;
+}
+.cloud-modes button.selected {
+  border-color: #759d84;
+  background: #f1f6f1;
+}
+.cloud-modes strong {
+  font-size: 14px;
+}
+.cloud-modes strong span {
+  font-size: 10px;
+  color: #518162;
+  margin-left: 6px;
+}
+.cloud-modes small {
+  color: #777e78;
+  line-height: 1.6;
+}
+.cloud-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.cloud-external {
+  display: grid;
+  gap: 14px;
+  margin: 20px 0;
+  justify-items: start;
+}
+.cloud-external button,
+.cloud-connect {
+  padding: 9px 12px;
+  border: 1px solid #dedfdc;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cloud-project-selectors {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+}
+.cloud-project-selectors label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+}
+.cloud-project-selectors select {
+  padding: 10px;
+  border: 1px solid #dedfdc;
+  border-radius: 8px;
+  background: #fff;
+  max-width: 100%;
+}
+.cloud-resources {
+  margin: 20px 0;
+  border: 1px solid #e3e5df;
+  border-radius: 10px;
+}
+.cloud-resources > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  font-size: 12px;
+}
+.cloud-resources > div + div {
+  border-top: 1px solid #e3e5df;
+}
+.cloud-resources span {
+  color: #71776f;
+  overflow-wrap: anywhere;
+}
+.cloud-resources small {
+  color: #598067;
+}
+@media (max-width: 600px) {
+  .cloud-panel {
+    padding: 18px;
+  }
+  .cloud-modes {
+    grid-template-columns: 1fr;
+  }
+}

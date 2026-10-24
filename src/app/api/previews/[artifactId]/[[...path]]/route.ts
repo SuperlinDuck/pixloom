@@ -1,3 +1,4 @@
+import { artifactManifest } from '@/lib/cloud/manifest'
 import { previewAsset, StoreError } from '@/lib/store'
 import { runtimePreviewHeaders } from '@/lib/runtime/preview'
 import { errorResponse } from '@/lib/http'
@@ -15,7 +16,11 @@ export async function GET(
       throw new StoreError('资源路径无效')
     const asset = previewAsset(params.artifactId, file)
     return new Response(Buffer.from(asset.body), {
-      headers: runtimePreviewHeaders(request, asset.contentType),
+      headers: runtimePreviewHeaders(
+        request,
+        asset.contentType,
+        artifactManifest(params.artifactId)?.development.url,
+      ),
     })
   } catch (e) {
     return errorResponse(e)
