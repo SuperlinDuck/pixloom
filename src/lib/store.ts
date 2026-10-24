@@ -32,11 +32,14 @@ export function db() {
     CREATE UNIQUE INDEX IF NOT EXISTS one_active_task ON tasks(projectId) WHERE status IN ('queued','running');
     CREATE TABLE IF NOT EXISTS versions (id TEXT PRIMARY KEY, projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, taskId TEXT REFERENCES tasks(id), number INTEGER NOT NULL, summary TEXT NOT NULL, html TEXT NOT NULL, createdAt TEXT NOT NULL, UNIQUE(projectId,number));
     CREATE TABLE IF NOT EXISTS worker (id INTEGER PRIMARY KEY CHECK(id=1), owner TEXT NOT NULL, heartbeat INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS runtime_workspaces (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE, token TEXT UNIQUE NOT NULL, state TEXT NOT NULL, built INTEGER NOT NULL, files TEXT NOT NULL, updatedAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS runtime_jobs (id TEXT PRIMARY KEY, projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE, action TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, events TEXT NOT NULL, error TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL);
+    CREATE UNIQUE INDEX IF NOT EXISTS one_active_runtime_job ON runtime_jobs(projectId) WHERE status IN ('queued','running');
   `)
   globalStore.pixloomDb = connection
   return connection
 }
-function transaction<T>(fn: () => T): T {
+export function transaction<T>(fn: () => T): T {
   const c = db()
   c.exec('BEGIN IMMEDIATE')
   try {
@@ -261,6 +264,11 @@ export function acquireWorker(owner: string): boolean {
     db()
       .prepare(
         "UPDATE tasks SET status='queued',updatedAt=? WHERE status='running'",
+      )
+      .run(now())
+    db()
+      .prepare(
+        "UPDATE runtime_jobs SET status='queued',updatedAt=? WHERE status='running'",
       )
       .run(now())
     return true

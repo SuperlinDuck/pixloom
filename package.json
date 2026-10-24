@@ -10,7 +10,10 @@
     "start": "next start -H 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "format:check": "prettier --check src scripts tests docs README.md next.config.js package.json vitest.config.mts"
+    "format:check": "prettier --check src scripts tests sandbox docs README.md next.config.js package.json vitest.config.mts",
+    "sandbox:doctor": "tsx scripts/sandbox.ts doctor",
+    "sandbox:prepare": "tsx scripts/sandbox.ts prepare",
+    "sandbox:verify": "tsx scripts/sandbox.ts verify"
   },
   "dependencies": {
     "@next/env": "^14.2.35",

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   ArrowDownToLine,
+  Box,
   ArrowRight,
   ArrowUp,
   Check,
@@ -33,6 +34,7 @@ import type {
   Version,
 } from '@/lib/types'
 import { isActive } from '@/lib/types'
+import { RuntimePanel } from './runtime-panel'
 import { previewDocument } from '@/lib/preview'
 
 async function api<T>(url: string, body?: unknown): Promise<T> {
@@ -114,7 +116,7 @@ export function Workspace() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [detailError, setDetailError] = useState('')
-  const [tab, setTab] = useState<'preview' | 'code'>('preview')
+  const [tab, setTab] = useState<'preview' | 'code' | 'runtime'>('preview')
   const [mobile, setMobile] = useState(false)
   const [history, setHistory] = useState(false)
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null)
@@ -742,13 +744,23 @@ export function Workspace() {
                     <Code2 size={15} />
                     代码
                   </button>
+                  <button
+                    className={tab === 'runtime' ? 'active' : ''}
+                    onClick={() => {
+                      setTab('runtime')
+                      setHistory(false)
+                    }}
+                  >
+                    <Box size={15} />
+                    环境
+                  </button>
                 </div>
                 <div className="preview-actions">
                   <button
                     className={`icon-button ${history ? 'pressed' : ''}`}
                     aria-label="版本历史"
                     onClick={() => setHistory(!history)}
-                    disabled={!detail?.versions.length}
+                    disabled={!detail?.versions.length || tab === 'runtime'}
                   >
                     <History size={16} />
                   </button>
@@ -770,111 +782,123 @@ export function Workspace() {
                   <button
                     className="export-button"
                     onClick={download}
-                    disabled={!version}
+                    disabled={!version || tab === 'runtime'}
                   >
                     <ArrowDownToLine size={14} />
                     <span>导出</span>
                   </button>
                 </div>
               </div>
-              <div className="preview-location">
-                <span className="location-dot" />
-                <span>
-                  {version
-                    ? `pixloom / ${detail?.project.name} / v${version.number}`
-                    : '你的应用将在这里呈现'}
-                </span>
-                {version && (
-                  <button
-                    className="icon-button"
-                    aria-label="刷新预览"
-                    onClick={() => setPreviewKey((k) => k + 1)}
-                  >
-                    <RefreshCw size={13} />
-                  </button>
-                )}
-              </div>
-              {viewingHistory && (
-                <div className="version-banner">
-                  <span>正在预览历史版本 v{version?.number}</span>
-                  <button
-                    disabled={busy || Boolean(activeTask)}
-                    onClick={() => version && void restore(version)}
-                  >
-                    恢复为当前版本
-                  </button>
-                  <button onClick={() => setSelectedVersion(null)}>
-                    返回当前
-                  </button>
-                </div>
-              )}
-              <div
-                className={`preview-canvas ${tab === 'code' ? 'code-canvas' : ''}`}
-              >
-                {version ? (
-                  tab === 'code' ? (
-                    <div className="code-view">
-                      <div className="file-tab">
-                        <FileCode2 size={14} />
-                        index.html<span>只读</span>
-                      </div>
-                      <pre>
-                        <code>{version.html}</code>
-                      </pre>
+              {tab === 'runtime' && activeId ? (
+                <RuntimePanel
+                  key={activeId}
+                  projectId={activeId}
+                  mobile={mobile}
+                />
+              ) : (
+                <>
+                  <div className="preview-location">
+                    <span className="location-dot" />
+                    <span>
+                      {version
+                        ? `pixloom / ${detail?.project.name} / v${version.number}`
+                        : '你的应用将在这里呈现'}
+                    </span>
+                    {version && (
+                      <button
+                        className="icon-button"
+                        aria-label="刷新预览"
+                        onClick={() => setPreviewKey((k) => k + 1)}
+                      >
+                        <RefreshCw size={13} />
+                      </button>
+                    )}
+                  </div>
+                  {viewingHistory && (
+                    <div className="version-banner">
+                      <span>正在预览历史版本 v{version?.number}</span>
+                      <button
+                        disabled={busy || Boolean(activeTask)}
+                        onClick={() => version && void restore(version)}
+                      >
+                        恢复为当前版本
+                      </button>
+                      <button onClick={() => setSelectedVersion(null)}>
+                        返回当前
+                      </button>
                     </div>
-                  ) : (
-                    <iframe
-                      key={`${version.id}-${previewKey}`}
-                      title={`应用预览 v${version.number}`}
-                      className={mobile ? 'phone-frame' : ''}
-                      srcDoc={previewDocument(version.html)}
-                      sandbox="allow-scripts"
-                      referrerPolicy="no-referrer"
-                    />
-                  )
-                ) : (
-                  <div className="preview-empty">
-                    <div
-                      className={`preview-illustration ${activeTask ? 'building' : ''}`}
-                    >
-                      <div className="illustration-window">
-                        <span />
-                        <span />
-                        <span />
-                        <div className="illustration-lines">
-                          <i />
-                          <i />
-                          <i />
+                  )}
+                  <div
+                    className={`preview-canvas ${tab === 'code' ? 'code-canvas' : ''}`}
+                  >
+                    {version ? (
+                      tab === 'code' ? (
+                        <div className="code-view">
+                          <div className="file-tab">
+                            <FileCode2 size={14} />
+                            index.html<span>只读</span>
+                          </div>
+                          <pre>
+                            <code>{version.html}</code>
+                          </pre>
                         </div>
-                        <div className="illustration-block" />
+                      ) : (
+                        <iframe
+                          key={`${version.id}-${previewKey}`}
+                          title={`应用预览 v${version.number}`}
+                          className={mobile ? 'phone-frame' : ''}
+                          srcDoc={previewDocument(version.html)}
+                          sandbox="allow-scripts"
+                          referrerPolicy="no-referrer"
+                        />
+                      )
+                    ) : (
+                      <div className="preview-empty">
+                        <div
+                          className={`preview-illustration ${activeTask ? 'building' : ''}`}
+                        >
+                          <div className="illustration-window">
+                            <span />
+                            <span />
+                            <span />
+                            <div className="illustration-lines">
+                              <i />
+                              <i />
+                              <i />
+                            </div>
+                            <div className="illustration-block" />
+                          </div>
+                          <span className="illustration-spark">✳</span>
+                        </div>
+                        <h2>
+                          {activeTask
+                            ? '你的想法，正在成形'
+                            : '给想法一个落脚点'}
+                        </h2>
+                        <p>
+                          {activeTask
+                            ? '代码生成并通过检查后，应用会出现在这里。'
+                            : '发送第一条需求，开始构建你的应用。'}
+                        </p>
+                        <span className="preview-empty-label">
+                          BUILD SOMETHING THAT MATTERS
+                        </span>
                       </div>
-                      <span className="illustration-spark">✳</span>
-                    </div>
-                    <h2>
-                      {activeTask ? '你的想法，正在成形' : '给想法一个落脚点'}
-                    </h2>
-                    <p>
-                      {activeTask
-                        ? '代码生成并通过检查后，应用会出现在这里。'
-                        : '发送第一条需求，开始构建你的应用。'}
-                    </p>
-                    <span className="preview-empty-label">
-                      BUILD SOMETHING THAT MATTERS
+                    )}
+                  </div>
+                  <div className="preview-status">
+                    <span>
+                      <ShieldCheck size={12} />
+                      隔离预览 · 无外部网络
+                    </span>
+                    <span>
+                      {version
+                        ? `v${version.number}${viewingHistory ? ' · 历史版本' : ' · 当前版本'}`
+                        : '等待首次生成'}
                     </span>
                   </div>
-                )}
-              </div>
-              <div className="preview-status">
-                <span>
-                  <ShieldCheck size={12} />
-                  隔离预览 · 无外部网络
-                </span>
-                <span>
-                  {version
-                    ? `v${version.number}${viewingHistory ? ' · 历史版本' : ' · 当前版本'}`
-                    : '等待首次生成'}
-                </span>
-              </div>
+                </>
+              )}
               {history && (
                 <div className="history-panel">
                   <div className="panel-title">
@@ -960,7 +984,7 @@ export function Workspace() {
             </div>
             <pre className="env-example">
               {
-                '# Gemini：两种 Key 任选其一\nGEMINI_API_KEY=你的_Gemini_Key\n# VERTEX_AI_API_KEY=你现有的_Vertex_Key\nGEMINI_MODEL=gemini-2.5-flash\n\n# 后续切换 GPT\n# OPENAI_API_KEY=你的_OpenAI_Key\n# OPENAI_MODEL=gpt-4.1-mini'
+                '# Gemini：两种 Key 任选其一\nGEMINI_API_KEY=你的_Gemini_Key\n# VERTEX_AI_API_KEY=你现有的_Vertex_Key\nGEMINI_MODEL=gemini-3.5-flash\n\n# 后续切换 GPT\n# OPENAI_API_KEY=你的_OpenAI_Key\n# OPENAI_MODEL=gpt-4.1-mini'
               }
             </pre>
             <div className="worker-status">

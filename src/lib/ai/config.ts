@@ -3,7 +3,7 @@ export function modelOptions(): ModelOption[] {
   return [
     {
       provider: 'gemini',
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
       label: 'Gemini',
       configured: Boolean(
         process.env.GEMINI_API_KEY || process.env.VERTEX_AI_API_KEY,

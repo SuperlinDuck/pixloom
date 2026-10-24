@@ -1,5 +1,5 @@
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.js
 
@@ -56,3 +56,6 @@ public/uploads/*
 .pixloom/
 
 .pnpm-store/
+
+# Local verification output of the fixed sandbox template
+sandbox/template/dist/

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { ZodError } from 'zod'
 import { StoreError } from './store'
+import { RuntimeError } from './runtime/types'
 
 export function errorResponse(error: unknown) {
-  if (error instanceof StoreError)
+  if (error instanceof StoreError || error instanceof RuntimeError)
     return NextResponse.json({ error: error.message }, { status: error.status })
   if (error instanceof ZodError)
     return NextResponse.json(
@@ -21,7 +22,7 @@ export function errorResponse(error: unknown) {
     { status: 500 },
   )
 }
-export function checkMutation(request: Request) {
+export function checkMutation(request: Request, maxBytes = 32000) {
   const origin = request.headers.get('origin')
   const url = new URL(request.url)
   const host = request.headers.get('host') || url.host
@@ -30,11 +31,11 @@ export function checkMutation(request: Request) {
   if (!request.headers.get('content-type')?.includes('application/json'))
     throw new StoreError('请求必须使用 JSON', 415)
   const size = Number(request.headers.get('content-length') || 0)
-  if (size > 32000) throw new StoreError('请求过大', 413)
+  if (size > maxBytes) throw new StoreError('请求过大', 413)
 }
-export async function readJson(request: Request) {
-  checkMutation(request)
+export async function readJson(request: Request, maxBytes = 32000) {
+  checkMutation(request, maxBytes)
   const text = await request.text()
-  if (Buffer.byteLength(text) > 32000) throw new StoreError('请求过大', 413)
+  if (Buffer.byteLength(text) > maxBytes) throw new StoreError('请求过大', 413)
   return JSON.parse(text)
 }

@@ -1,6 +1,6 @@
 # Pixloom
 
-用自然语言构建、预览和迭代应用。当前版本是**本地单用户原型**：Gemini 优先，支持切换使用 Responses API 的 GPT 模型。
+用自然语言构建、预览和迭代应用。当前版本是**本地单用户原型**：Gemini 优先，支持切换使用 Responses API 的 GPT 模型；新增固定 React/Vite 模板的 Docker 执行环境。
 
 ## 启动
 
@@ -20,7 +20,7 @@ pnpm dev
 GEMINI_API_KEY=...
 # 或使用原仓库的 Vertex Express Key
 # VERTEX_AI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.5-flash
 ```
 
 模型必须支持文本生成和 JSON 结构化输出。原来的图片生成模型不能用于代码生成。如果同时设置两个 Gemini Key，优先使用 `GEMINI_API_KEY`。模型名称可按账号权限调整。配置变更后重启 Web 和 Worker。
@@ -47,9 +47,23 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 
 项目、任务、事件和完整版本保存在 `.pixloom/pixloom.db`。可通过 `PIXLOOM_DATA_DIR` 改变目录；Web 和 Worker 必须指向相同目录。备份前停止两个进程，再复制整个目录（包含可能存在的 WAL 文件）。
 
+## Docker 执行环境
+
+安装并启动 Docker 后，运行：
+
+```sh
+pnpm sandbox:doctor
+pnpm sandbox:prepare
+pnpm sandbox:verify
+```
+
+进入项目的「环境」页，创建 React 环境、编辑源码、构建并查看隔离预览。环境操作在 Worker 中执行，源码保存到 SQLite；支持停止、重启恢复、取消和移除容器。此阶段是手写模板的执行环境，尚未接入聊天生成 React 项目。
+
+详见 [Docker 环境使用与验证](docs/docker-runtime.md)。
+
 ## 当前边界
 
-生成物是**单个自包含的 HTML/CSS/JavaScript 应用**，暂不执行 Shell、不安装 npm 依赖，不支持 React 工程、真实后端、登录、支付、外部 API 或本地存储。iframe 使用 `sandbox="allow-scripts"`，不授予同源、弹窗和导航权限；CSP 禁止网络、表单提交和外部资源。静态检查不等于浏览器行为测试，CSS 和业务逻辑仍可能需要继续迭代。导出 HTML 在独立浏览器打开时不再受工作台 iframe 边界保护。
+聊天生成物仍是**单个自包含的 HTML/CSS/JavaScript 应用**。独立的 Docker 环境支持固定 React/Vite 工程、受限源码编辑与构建，但尚未支持模型生成多文件项目、多文件历史版本、任意 npm 依赖、真实后端、登录或支付。iframe 使用 `sandbox="allow-scripts"`，不授予同源、弹窗和导航权限；CSP 禁止网络、表单提交和外部资源。静态检查不等于浏览器行为测试，CSS 和业务逻辑仍可能需要继续迭代。导出 HTML 在独立浏览器打开时不再受工作台 iframe 边界保护。
 
 这是本地原型，Web 默认绑定 `127.0.0.1`，API 拒绝非本机 Host 与跨站请求。尚未实现用户认证、租户隔离、调用额度、磁盘配额或公开部署；请勿直接通过反向代理开放访问。原有商品图业务、OAuth 骨架、MongoDB schema 和旧的自动部署流程已移除。
 
@@ -72,6 +86,7 @@ pnpm worker
 
 - [Atoms 调研原文快照](docs/atoms-research.md)：产品能力、Agent 编排、Sandbox、基础设施与实施路线的研究依据。
 - [Pixloom 当前架构与后续路线](docs/architecture.md)：仓库当前已实现的能力、边界和下一步。
+- [Docker 环境实现](docs/docker-runtime.md)：容器约束、操作流程、预览与验证。
 - [下一步实施计划](docs/roadmap.md)：React 项目生成、Docker 执行环境及后续里程碑的实现顺序和验收标准。
 
 开始后续开发任务时，建议先阅读这两份文档，并以用户最新要求和实际代码为准。
