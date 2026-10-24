@@ -1,23 +1,7 @@
-const createNextIntlPlugin = require("next-intl/plugin")
-
-const withNextIntl = createNextIntlPlugin()
-
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  output: 'standalone',
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
-  },
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '10mb',
-    },
+module.exports = {
+  experimental: { cpus: 2 },
+  webpack(config, { isServer }) {
+    if (isServer) config.externals.push('node:sqlite')
+    return config
   },
 }
-
-module.exports = withNextIntl(nextConfig)
