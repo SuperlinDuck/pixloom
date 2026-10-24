@@ -20,6 +20,12 @@ describe('opaque-origin preview resource access', () => {
       middleware(request(`/api/previews/${id}/index.html`, 'POST')).status,
     ).toBe(403)
     expect(middleware(request('/api/projects')).status).toBe(403)
+    expect(middleware(request('/api/auth/callback/google')).status).toBe(200)
+    expect(
+      middleware(request('/api/auth/callback/google', 'POST')).status,
+    ).toBe(403)
+    expect(middleware(request('/api/auth/logout', 'POST')).status).toBe(403)
+    expect(middleware(request('/api/auth/google')).status).toBe(403)
     expect(
       middleware(request(`/api/previews/${id}/index.html`, 'GET', 'evil.test'))
         .status,

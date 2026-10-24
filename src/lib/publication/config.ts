@@ -1,0 +1,83 @@
+import path from 'node:path'
+import { createHash } from 'node:crypto'
+import { projectPublicId } from '../store'
+
+export function publicationConfig() {
+  const domain = process.env.PIXLOOM_PUBLISH_DOMAIN || 'apps.localhost'
+  if (
+    domain.length > 190 ||
+    !domain.includes('.') ||
+    !domain
+      .split('.')
+      .every((part) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(part))
+  )
+    throw new Error(
+      'PIXLOOM_PUBLISH_DOMAIN 必须是小写 DNS 域名，不含协议、端口或通配符',
+    )
+  const port = Number(process.env.PIXLOOM_GATEWAY_PORT || 4180)
+  const local = domain.endsWith('.localhost')
+  const publicPort = Number(
+    process.env.PIXLOOM_PUBLISH_PORT || (local ? port : 443),
+  )
+  if (
+    ![port, publicPort].every(
+      (value) => Number.isInteger(value) && value > 0 && value <= 65535,
+    )
+  )
+    throw new Error('发布端口必须是 1–65535 的整数')
+  const root = path.resolve(
+    process.env.PIXLOOM_PUBLISH_DIR ||
+      path.join(process.env.PIXLOOM_DATA_DIR || '.pixloom', 'published'),
+  )
+  return {
+    enabled: process.env.PIXLOOM_PUBLISH_ENABLED === '1',
+    domain,
+    port,
+    publicPort,
+    local,
+    root,
+    rootHash: createHash('sha256').update(root).digest('hex'),
+  }
+}
+export type PublicationConfig = ReturnType<typeof publicationConfig>
+export function publicationTarget(
+  projectId: string,
+  config = publicationConfig(),
+) {
+  if (!/^[a-f0-9-]{36}$/.test(projectId)) throw new Error('项目 ID 无效')
+  const domain = `${projectPublicId(projectId)}.${config.domain}`
+  const scheme = config.local ? 'http' : 'https'
+  const port =
+    config.publicPort === (config.local ? 80 : 443)
+      ? ''
+      : `:${config.publicPort}`
+  return { domain, url: `${scheme}://${domain}${port}` }
+}
+export function caddyConfig(config = publicationConfig(), localPort?: number) {
+  if (
+    localPort !== undefined &&
+    (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535)
+  )
+    throw new Error('Caddy 测试端口无效')
+  const upstream = `127.0.0.1:${config.port}`
+  const routes = `    @internal path /_pixloom /_pixloom/*\n    respond @internal 404\n    reverse_proxy ${upstream}\n`
+  if (localPort !== undefined)
+    return `{\n    admin off\n    auto_https off\n}\nhttp://:${localPort} {\n    bind 127.0.0.1\n${routes}}\n`
+  return `{
+    admin 127.0.0.1:2019
+    on_demand_tls {
+        ask http://${upstream}/_pixloom/allow-domain
+    }
+}
+https:// {
+    tls {
+        on_demand
+    }
+${routes}}
+http:// {
+    @apps host *.${config.domain}
+    redir @apps https://{host}{uri} 308
+    respond 404
+}
+`
+}

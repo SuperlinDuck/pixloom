@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomInt } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { snapshot, applyOperations } from './workspace-files'
 import type {
@@ -55,6 +55,14 @@ export function db() {
     CREATE TABLE IF NOT EXISTS runtime_workspaces (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,state TEXT NOT NULL,loadedHash TEXT,updatedAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS draft_backups (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,baseVersionId TEXT,revision INTEGER NOT NULL,files TEXT NOT NULL,createdAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS worker (id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,heartbeat INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS releases (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,taskId TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,versionId TEXT NOT NULL REFERENCES versions(id) ON DELETE CASCADE,artifactId TEXT NOT NULL REFERENCES preview_artifacts(id),sourceHash TEXT NOT NULL,templateId TEXT NOT NULL,action TEXT NOT NULL,status TEXT NOT NULL,domain TEXT NOT NULL,url TEXT NOT NULL,previousReleaseId TEXT,restoredFromReleaseId TEXT,error TEXT,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS releases_project ON releases(projectId,createdAt);
+    CREATE TABLE IF NOT EXISTS published_sites (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,releaseId TEXT NOT NULL REFERENCES releases(id) ON DELETE CASCADE,domain TEXT NOT NULL UNIQUE);
+    CREATE TABLE IF NOT EXISTS publication_meta (id INTEGER PRIMARY KEY CHECK(id=1),installationId TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS project_public_ids (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,shortId TEXT NOT NULL UNIQUE CHECK(length(shortId)=6 AND shortId NOT GLOB '*[^a-z0-9]*'));
+    CREATE TABLE IF NOT EXISTS auth_account (id INTEGER PRIMARY KEY CHECK(id=1),subject TEXT NOT NULL UNIQUE,name TEXT NOT NULL,email TEXT NOT NULL,picture TEXT);
+    CREATE TABLE IF NOT EXISTS auth_sessions (tokenHash TEXT PRIMARY KEY,expiresAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS auth_flows (tokenHash TEXT PRIMARY KEY,state TEXT NOT NULL,nonce TEXT NOT NULL,verifier TEXT NOT NULL,expiresAt INTEGER NOT NULL);
     PRAGMA user_version=3;
   `)
   if (
@@ -64,6 +72,9 @@ export function db() {
   )
     c.exec('ALTER TABLE tasks ADD COLUMN agent TEXT')
   globalStore.pixloomDb = c
+  c.prepare('INSERT OR IGNORE INTO publication_meta VALUES (1,?)').run(
+    randomUUID(),
+  )
   return c
 }
 export function transaction<T>(fn: () => T): T {
@@ -83,6 +94,29 @@ export function projectById(id: string): Project {
     Project | undefined
   if (!row) throw new StoreError('项目不存在', 404)
   return row
+}
+export function projectPublicId(projectId: string): string {
+  projectById(projectId)
+  const find = db().prepare(
+    'SELECT shortId FROM project_public_ids WHERE projectId=?',
+  )
+  const existing = find.get(projectId) as { shortId: string } | undefined
+  if (existing) return existing.shortId
+  const insert = db().prepare(
+    'INSERT OR IGNORE INTO project_public_ids VALUES (?,?)',
+  )
+  for (let attempt = 0; attempt < 64; attempt++) {
+    insert.run(
+      projectId,
+      randomInt(36 ** 6)
+        .toString(36)
+        .padStart(6, '0'),
+    )
+    // Both projectId and shortId are unique, including across Web/Worker processes.
+    const row = find.get(projectId) as { shortId: string } | undefined
+    if (row) return row.shortId
+  }
+  throw new StoreError('无法分配发布短 ID，请重试', 503)
 }
 export function listProjects(): Project[] {
   return db()
@@ -148,17 +182,38 @@ export function getProject(id: string): ProjectDetail {
 }
 export function createProject(name: string, files: SourceFile[]): Project {
   const value = snapshot(files)
+  return transaction(() => insertProject(name, value))
+}
+function insertProject(name: string, value: ReturnType<typeof snapshot>) {
+  const id = randomUUID(),
+    time = now()
+  db()
+    .prepare('INSERT INTO projects VALUES (?,?,?,?,?)')
+    .run(id, name, null, time, time)
+  db()
+    .prepare('INSERT INTO workspace_drafts VALUES (?,?,?,?,?,?)')
+    .run(id, null, 0, JSON.stringify(value.files), value.hash, time)
+  projectPublicId(id)
+  return projectById(id)
+}
+export function createAgentProject(
+  name: string,
+  files: SourceFile[],
+  agent: AgentState,
+) {
+  const value = snapshot(files)
   return transaction(() => {
-    const id = randomUUID(),
-      time = now()
-    db()
-      .prepare('INSERT INTO projects VALUES (?,?,?,?,?)')
-      .run(id, name, null, time, time)
-    db()
-      .prepare('INSERT INTO workspace_drafts VALUES (?,?,?,?,?,?)')
-      .run(id, null, 0, JSON.stringify(value.files), value.hash, time)
-    return projectById(id)
+    const project = insertProject(name, value)
+    insertTask(project.id, 'agent', 0, null, undefined, undefined, agent)
+    return project
   })
+}
+export function renameProject(id: string, name: string) {
+  projectById(id)
+  db()
+    .prepare('UPDATE projects SET name=?,updatedAt=? WHERE id=?')
+    .run(name, now(), id)
+  return projectById(id)
 }
 function assertIdle(projectId: string) {
   if (
@@ -287,67 +342,90 @@ export function enqueueTask(
   summary?: string,
   agent?: AgentState,
 ): Task {
-  return transaction(() => {
-    if (kind === 'agent' && !agent) throw new StoreError('缺少模型任务配置')
-    const project = projectById(projectId)
-    assertIdle(projectId)
-    const draft = assertRevision(projectId, expectedRevision)
-    if (project.currentVersionId !== expectedVersionId)
-      throw new StoreError('当前版本已变化，请刷新后重试', 409)
-    const target = targetVersionId
-      ? getVersion(projectId, targetVersionId)
-      : null
-    if ((kind === 'restore' || kind === 'preview') && !target)
-      throw new StoreError('缺少目标版本')
-    if (kind === 'initialize' && project.currentVersionId)
-      throw new StoreError('项目已经初始化', 409)
-    if (
-      ['initialize', 'commit'].includes(kind) &&
-      project.currentVersionId &&
-      getVersion(projectId, project.currentVersionId).hash === draft.hash
+  return transaction(() =>
+    insertTask(
+      projectId,
+      kind,
+      expectedRevision,
+      expectedVersionId,
+      targetVersionId,
+      summary,
+      agent,
+    ),
+  )
+}
+export function insertTask(
+  projectId: string,
+  kind: TaskKind,
+  expectedRevision: number,
+  expectedVersionId: string | null,
+  targetVersionId?: string,
+  summary?: string,
+  agent?: AgentState,
+): Task {
+  if (kind === 'agent' && !agent) throw new StoreError('缺少模型任务配置')
+  const project = projectById(projectId)
+  assertIdle(projectId)
+  const draft = assertRevision(projectId, expectedRevision)
+  if (project.currentVersionId !== expectedVersionId)
+    throw new StoreError('当前版本已变化，请刷新后重试', 409)
+  const target = targetVersionId ? getVersion(projectId, targetVersionId) : null
+  if (['restore', 'preview', 'publish', 'unpublish'].includes(kind) && !target)
+    throw new StoreError('缺少目标版本')
+  if (kind === 'initialize' && project.currentVersionId)
+    throw new StoreError('项目已经初始化', 409)
+  if (
+    ['initialize', 'commit'].includes(kind) &&
+    project.currentVersionId &&
+    getVersion(projectId, project.currentVersionId).hash === draft.hash
+  )
+    throw new StoreError('源码没有变化，无需创建版本', 409)
+  if (kind === 'restore' && target?.id === project.currentVersionId)
+    throw new StoreError('已经是当前版本', 409)
+  const id = randomUUID(),
+    time = now()
+  const label =
+    summary?.trim() ||
+    {
+      agent: agent?.prompt.slice(0, 500) || 'AI 修改',
+      initialize: '创建 React 模板',
+      commit: '保存源码修改',
+      restore: `恢复版本 v${target?.number}`,
+      preview: `构建历史 v${target?.number} 预览`,
+      start: '启动环境',
+      stop: '停止环境',
+      remove: '移除容器',
+      publish: `发布版本 v${target?.number}`,
+      unpublish: '下线应用',
+    }[kind]
+  db()
+    .prepare(
+      'INSERT INTO tasks (id,projectId,kind,status,baseVersionId,expectedDraftRevision,attemptId,targetVersionId,candidateFiles,resultVersionId,summary,events,error,createdAt,updatedAt,agent) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
     )
-      throw new StoreError('源码没有变化，无需创建版本', 409)
-    if (kind === 'restore' && target?.id === project.currentVersionId)
-      throw new StoreError('已经是当前版本', 409)
-    const id = randomUUID(),
-      time = now()
-    const label =
-      summary?.trim() ||
-      {
-        agent: agent?.prompt.slice(0, 500) || 'AI 修改',
-        initialize: '创建 React 模板',
-        commit: '保存源码修改',
-        restore: `恢复版本 v${target?.number}`,
-        preview: `构建历史 v${target?.number} 预览`,
-        start: '启动环境',
-        stop: '停止环境',
-        remove: '移除容器',
-      }[kind]
-    db()
-      .prepare(
-        'INSERT INTO tasks (id,projectId,kind,status,baseVersionId,expectedDraftRevision,attemptId,targetVersionId,candidateFiles,resultVersionId,summary,events,error,createdAt,updatedAt,agent) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-      )
-      .run(
-        id,
-        projectId,
-        kind,
-        'queued',
-        project.currentVersionId,
-        draft.revision,
-        null,
-        target?.id || null,
-        JSON.stringify(target?.files || draft.files),
-        null,
-        label,
-        JSON.stringify([{ at: time, message: '操作已排队，等待 Worker' }]),
-        null,
-        time,
-        time,
-        agent ? JSON.stringify(agent) : null,
-      )
-    assertStorageBudget(projectId)
-    return getTask(id)
-  })
+    .run(
+      id,
+      projectId,
+      kind,
+      'queued',
+      project.currentVersionId,
+      draft.revision,
+      null,
+      target?.id || null,
+      JSON.stringify(
+        ['publish', 'unpublish'].includes(kind)
+          ? []
+          : target?.files || draft.files,
+      ),
+      null,
+      label,
+      JSON.stringify([{ at: time, message: '操作已排队，等待 Worker' }]),
+      null,
+      time,
+      time,
+      agent ? JSON.stringify(agent) : null,
+    )
+  assertStorageBudget(projectId)
+  return getTask(id)
 }
 export function claimTask(owner?: string): Task | undefined {
   return transaction(() => {
@@ -395,6 +473,11 @@ export function cancelTask(id: string) {
         "UPDATE tasks SET status='cancelled',attemptId=NULL,updatedAt=? WHERE id=? AND status IN ('queued','running')",
       )
       .run(now(), id)
+    db()
+      .prepare(
+        "UPDATE releases SET status='cancelled',updatedAt=? WHERE taskId=? AND status IN ('queued','staging','verifying')",
+      )
+      .run(now(), id)
   })
   return getTask(id)
 }
@@ -404,6 +487,12 @@ export function finishTask(task: Task, error?: string) {
     db()
       .prepare('UPDATE tasks SET status=?,error=?,updatedAt=? WHERE id=?')
       .run(error ? 'failed' : 'completed', error || null, now(), task.id)
+    if (error)
+      db()
+        .prepare(
+          "UPDATE releases SET status='failed',error=?,updatedAt=? WHERE taskId=? AND status NOT IN ('published','unpublished')",
+        )
+        .run(error, now(), task.id)
     return true
   })
 }
@@ -442,6 +531,21 @@ export function artifactFor(
       .get(projectId, hash, templateId) as { id: string } | undefined
   )?.id
 }
+export function assetContentType(file: string) {
+  const types: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.woff2': 'font/woff2',
+    '.txt': 'text/plain; charset=utf-8',
+  }
+  return types[path.posix.extname(file)] || 'application/octet-stream'
+}
 export function validateAssets(assets: BuildAsset[]) {
   if (!Array.isArray(assets) || assets.length === 0 || assets.length > 128)
     throw new StoreError('构建资源数量无效', 413)
@@ -470,23 +574,10 @@ export function validateAssets(assets: BuildAsset[]) {
     total += bytes.length
     if (bytes.length > 2 * 1024 * 1024 || total > 8 * 1024 * 1024)
       throw new StoreError('构建产物超过大小限制', 413)
-    const ext = path.posix.extname(asset.path)
-    const types: Record<string, string> = {
-      '.html': 'text/html; charset=utf-8',
-      '.js': 'text/javascript; charset=utf-8',
-      '.css': 'text/css; charset=utf-8',
-      '.svg': 'image/svg+xml',
-      '.json': 'application/json',
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.webp': 'image/webp',
-      '.woff2': 'font/woff2',
-      '.txt': 'text/plain; charset=utf-8',
-    }
     return {
       path: asset.path,
       body: bytes,
-      contentType: types[ext] || 'application/octet-stream',
+      contentType: assetContentType(asset.path),
     }
   })
   if (!seen.has('index.html')) throw new StoreError('构建产物缺少 index.html')
@@ -602,6 +693,51 @@ export function completeBuild(
     assertStorageBudget(task.projectId)
     return getVersion(task.projectId, id)
   })
+}
+export function versionDelivery(projectId: string, versionId: string) {
+  // Pin the version and its artifact together; preview rebuilds may change the reference.
+  return transaction(() => {
+    const version = getVersion(projectId, versionId)
+    return {
+      project: projectById(projectId),
+      version,
+      assets: artifactDelivery(
+        projectId,
+        version.artifactId,
+        version.hash,
+        version.templateId,
+      ),
+    }
+  })
+}
+export function artifactDelivery(
+  projectId: string,
+  artifactId: string,
+  sourceHash: string,
+  templateId: string,
+) {
+  const artifact = db()
+    .prepare(
+      'SELECT id FROM preview_artifacts WHERE id=? AND projectId=? AND sourceHash=? AND templateId=?',
+    )
+    .get(artifactId, projectId, sourceHash, templateId)
+  if (!artifact) throw new StoreError('版本构建产物不存在或不匹配', 409)
+  const rows = db()
+    .prepare(
+      'SELECT path,contentType,body FROM preview_assets WHERE artifactId=? ORDER BY path',
+    )
+    .all(artifactId) as {
+    path: string
+    contentType: string
+    body: Uint8Array
+  }[]
+  const assets = validateAssets(
+    rows.map((row) => ({
+      ...row,
+      body: Buffer.from(row.body).toString('base64'),
+    })),
+  ).assets
+  return assets
 }
 export function previewAsset(artifactId: string, file: string) {
   const row = db()

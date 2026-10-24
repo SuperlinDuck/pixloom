@@ -1,28 +1,19 @@
 import { NextResponse } from 'next/server'
-import { z } from 'zod'
-import { enqueueTask, StoreError } from '@/lib/store'
-import { requireModel } from '@/lib/ai/config'
+import { enqueueTask } from '@/lib/store'
 import { errorResponse, readJson } from '@/lib/http'
-import { baselineSchema, requireWorker } from '@/lib/workspace-api'
-const schema = baselineSchema
-  .extend({
-    prompt: z.string().trim().min(1).max(8000),
-    provider: z.enum(['gemini', 'openai']),
-  })
-  .strict()
+import {
+  agentRequestSchema,
+  baselineSchema,
+  initialAgentState,
+} from '@/lib/workspace-api'
+const schema = baselineSchema.merge(agentRequestSchema).strict()
 export async function POST(
   request: Request,
   { params }: { params: { id: string } },
 ) {
   try {
     const input = schema.parse(await readJson(request, 64000))
-    requireWorker()
-    let config
-    try {
-      config = requireModel(input.provider)
-    } catch (error) {
-      throw new StoreError((error as Error).message, 400)
-    }
+    const agent = initialAgentState(input.provider, input.prompt)
     const task = enqueueTask(
       params.id,
       'agent',
@@ -30,18 +21,7 @@ export async function POST(
       input.expectedVersionId,
       undefined,
       undefined,
-      {
-        provider: input.provider,
-        model: config.model,
-        prompt: input.prompt,
-        steps: 0,
-        toolCalls: 0,
-        buildFailures: 0,
-        responseBytes: 0,
-        reservedOutputTokens: 0,
-        usage: { inputTokens: 0, outputTokens: 0 },
-        startedAt: null,
-      },
+      agent,
     )
     const { candidateFiles: _files, ...summary } = task
     return NextResponse.json(summary, { status: 202 })

@@ -1,20 +1,22 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { workspaceRequestOrigin } from './lib/workspace-origin'
 
-// This first release is a local, single-user workspace. Add authentication before hosting.
+// Allow loopback and the explicitly configured workspace/proxy origin.
 export function middleware(request: NextRequest) {
-  const host = request.headers.get('host') || ''
-  const hostname = host.startsWith('[')
-    ? host.slice(0, host.indexOf(']') + 1)
-    : host.split(':')[0]
   const previewRead =
     request.method === 'GET' &&
     /^\/api\/previews\/[a-f0-9-]{36}(?:\/|$)/.test(request.nextUrl.pathname)
+  const googleCallback =
+    request.method === 'GET' &&
+    request.nextUrl.pathname === '/api/auth/callback/google'
   if (
-    !['localhost', '127.0.0.1', '[::1]'].includes(hostname) ||
-    (request.headers.get('sec-fetch-site') === 'cross-site' && !previewRead)
+    !workspaceRequestOrigin(request) ||
+    (request.headers.get('sec-fetch-site') === 'cross-site' &&
+      !previewRead &&
+      !googleCallback)
   ) {
     return NextResponse.json(
-      { error: 'Pixloom 当前仅支持本机访问' },
+      { error: '不允许从此地址或来源访问 Pixloom' },
       { status: 403 },
     )
   }

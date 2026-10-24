@@ -1,3 +1,4 @@
+import { requireWorkspaceUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { getDraft, getVersion, projectById } from '@/lib/store'
 import { diffFiles } from '@/lib/diff'
@@ -8,6 +9,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireWorkspaceUser(request)
     const q = new URL(request.url).searchParams,
       project = projectById(params.id)
     const to = q.get('to') || 'draft'

@@ -22,6 +22,7 @@ import {
   draftBackups,
   enqueueTask,
   getDraft,
+  listProjects,
   getProject,
   getTask,
   getVersion,
@@ -40,7 +41,11 @@ import type { BuildAsset, Task } from '../src/lib/types'
 import type { ProjectRuntime, SourceFile } from '../src/lib/runtime/types'
 import { templateFiles } from '../src/lib/runtime/template'
 import { GET as taskGET } from '../src/app/api/tasks/[id]/route'
-import { GET as projectGET } from '../src/app/api/projects/[id]/route'
+import {
+  GET as projectGET,
+  PATCH as projectPATCH,
+} from '../src/app/api/projects/[id]/route'
+import { POST as projectPOST } from '../src/app/api/projects/route'
 import {
   GET as filesGET,
   PATCH as filesPATCH,
@@ -627,6 +632,151 @@ async function agentRun(
   await runTask(task, runtime, undefined, undefined, provider)
   return getTask(task.id)
 }
+describe('conversation-first creation', () => {
+  const request = (body: unknown) =>
+    new Request('http://localhost/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  it('starts generation from the first message and saves the first result as AI v1', async () => {
+    acquireWorker('test')
+    vi.stubEnv('GEMINI_API_KEY', 'fake')
+    const prompt = '创建一个待办应用，支持分类筛选\n并可以标记完成'
+    try {
+      const response = await projectPOST(
+        request({ prompt, provider: 'gemini' }),
+      )
+      expect(response.status).toBe(201)
+      const project = await response.json()
+      expect(project.name).toBe(prompt.replace(/\s+/g, ' ').slice(0, 28))
+      const detail = getProject(project.id)
+      expect(detail.versions).toHaveLength(0)
+      expect(detail.tasks).toHaveLength(1)
+      expect(detail.tasks[0]).toMatchObject({
+        kind: 'agent',
+        status: 'queued',
+        baseVersionId: null,
+        agent: { prompt },
+      })
+      expect(getDraft(project.id).files).toEqual(snapshot(files).files)
+      const model = scripted(
+        turn([
+          call('write_file', {
+            path: 'src/App.jsx',
+            content: 'export default () => <h1>待办应用</h1>',
+          }),
+        ]),
+        turn([
+          call('browser_test', {
+            steps: [{ action: 'assert_visible', selector: '#root', value: '' }],
+          }),
+        ]),
+        turn([], '已创建待办应用，可以在预览中使用。'),
+      )
+      const task = await agentRun(claimTask()!, fakeRuntime(), model.provider)
+      expect(task.status).toBe('completed')
+      expect(task.events).toContainEqual(
+        expect.objectContaining({
+          type: 'reply',
+          message: '已创建待办应用，可以在预览中使用。',
+        }),
+      )
+      expect(getProject(project.id).versions).toMatchObject([
+        { number: 1, source: 'agent' },
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+  it('does not create projects for unavailable services or invalid input', async () => {
+    expect(
+      (await projectPOST(request({ prompt: '创建应用', provider: 'gemini' })))
+        .status,
+    ).toBe(503)
+    acquireWorker('test')
+    vi.stubEnv('GEMINI_API_KEY', '')
+    vi.stubEnv('VERTEX_AI_API_KEY', '')
+    try {
+      expect(
+        (await projectPOST(request({ prompt: '创建应用', provider: 'gemini' })))
+          .status,
+      ).toBe(400)
+      vi.stubEnv('GEMINI_API_KEY', 'fake')
+      for (const body of [
+        { prompt: ' ', provider: 'gemini' },
+        { prompt: 'x'.repeat(8001), provider: 'gemini' },
+        { prompt: '创建应用', provider: 'unknown' },
+        { prompt: '创建应用', provider: 'gemini', name: '混合请求' },
+      ]) {
+        expect((await projectPOST(request(body))).status).toBe(400)
+      }
+      expect(listProjects()).toHaveLength(0)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+  it('rolls back the project and draft when first-task insertion fails', async () => {
+    acquireWorker('test')
+    vi.stubEnv('GEMINI_API_KEY', 'fake')
+    db().exec(
+      "CREATE TRIGGER reject_first_task BEFORE INSERT ON tasks BEGIN SELECT RAISE(ABORT, 'test failure'); END;",
+    )
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      expect(
+        (await projectPOST(request({ prompt: '创建应用', provider: 'gemini' })))
+          .status,
+      ).toBe(500)
+      expect(listProjects()).toHaveLength(0)
+      expect(db().prepare('SELECT * FROM workspace_drafts').all()).toHaveLength(
+        0,
+      )
+    } finally {
+      db().exec('DROP TRIGGER reject_first_task')
+      vi.unstubAllEnvs()
+      log.mockRestore()
+    }
+  })
+  it('keeps blank creation available offline and allows renaming without changing source or tasks', async () => {
+    const response = await projectPOST(request({ name: '未命名项目' }))
+    expect(response.status).toBe(201)
+    const project = await response.json()
+    const before = getProject(project.id)
+    expect(before.tasks).toHaveLength(0)
+    expect(
+      (
+        await projectPATCH(request({ name: '我的应用' }), {
+          params: { id: project.id },
+        })
+      ).status,
+    ).toBe(200)
+    const after = getProject(project.id)
+    expect(after.project.name).toBe('我的应用')
+    expect(after.draft).toEqual(before.draft)
+    expect(after.tasks).toEqual(before.tasks)
+    expect(
+      (
+        await projectPATCH(request({ name: ' ' }), {
+          params: { id: project.id },
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await projectPATCH(request({ name: '不存在' }), {
+          params: { id: randomUUID() },
+        })
+      ).status,
+    ).toBe(404)
+    acquireWorker('test')
+    const online = await projectPOST(request({ name: '空白模板' }))
+    expect(getProject((await online.json()).id).tasks).toMatchObject([
+      { kind: 'initialize' },
+    ])
+  })
+})
+
 describe('coding agent workspace loop', () => {
   it('requires new behavior tests after editing an already tested candidate', async () => {
     const project = newProject(),

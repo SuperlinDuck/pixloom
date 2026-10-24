@@ -19,6 +19,7 @@ import { DockerRuntime } from './runtime/docker'
 import type { ProjectRuntime } from './runtime/types'
 import type { Task } from './types'
 import { verifyBrowser, type BrowserVerifier } from './browser'
+import { runPublication, type PublicationRuntime } from './publication/runner'
 
 export async function runTask(
   task: Task,
@@ -27,6 +28,7 @@ export async function runTask(
   owner?: string,
   modelProvider?: ModelProvider,
   browserVerifier: BrowserVerifier = verifyBrowser,
+  publicationRuntime?: PublicationRuntime,
 ) {
   const controller = new AbortController()
   const abort = () => controller.abort()
@@ -48,6 +50,16 @@ export async function runTask(
   let touched = false
   try {
     if (shutdown?.aborted || !active()) throw new Error('操作已中断')
+    if (task.kind === 'publish' || task.kind === 'unpublish') {
+      await runPublication(task, {
+        signal: controller.signal,
+        active,
+        owner,
+        verify: browserVerifier,
+        runtime: publicationRuntime,
+      })
+      return
+    }
     if (task.kind === 'agent') {
       if (!task.agent) throw new Error('缺少模型任务配置')
       task.agent.startedAt ??= Date.now()

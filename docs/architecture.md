@@ -27,6 +27,12 @@ React 工作台
 - `src/components/workspace.tsx`：统一工作台；项目状态轮询不携带历史源码全文，也不覆盖未保存编辑。
 - `src/middleware.ts`：本机访问边界；仅允许预览 GET 资源接收跨站请求。
 
+## 创建与对话入口
+
+首页以应用需求为入口。`POST /api/projects` 支持 `{ prompt, provider }`：先检查 Worker 与模型配置，再在同一事务内创建模板草稿和首个 Agent 任务，不安排模板初始化构建。首次成功生成直接得到 AI v1；失败保留项目与需求供继续修改。项目标题从首条需求提取，可通过 `PATCH /api/projects/:id` 修改。
+
+`{ name }` 请求保留为空白项目入口，沿用模板初始化。当前每个项目承载一条对话，用户消息来自持久化的任务需求，已通过验证的完成说明以 `reply` 事件持久化；日志折叠展示。尚未引入独立多会话或脱离源码任务的问答模式。
+
 ## 状态约定
 
 草稿可变，允许构建错误；当前版本是成功快照；查看历史只是前端选择。版本正文按需读取，项目轮询只传版本和草稿摘要。
@@ -43,6 +49,18 @@ React 工作台
 
 所有资源响应沿用 CSP sandbox 和 CORS，iframe 不授予同源权限。源代码中的 `index.html` 是 Vite 入口，不是旧单文件生成模式。
 
+## 版本交付
+
+`src/lib/delivery.ts` 将指定版本打包为 ZIP，`store.versionDelivery` 在同一事务中固定源码版本与原始构建产物并校验归属及 hash。仅使用已保存快照，独立于 Worker 与 Docker 生命周期，不改变草稿或版本。交付包提供 `source/` 可继续开发的项目、`site/` 可独立托管的原产物、来源及 SHA-256 清单。静态站点保留原始资源 URL 对应的目录，无需访问平台 API。完整边界见 [交付链路](delivery.md)。
+
+## 自动发布
+
+`src/lib/publication/` 实现发布状态、文件暂存与校验、任务执行、独立发布网关和 Caddy 配置生成。`releases` 关联统一任务，`published_sites` 保存唯一线上指针；Worker 验证落盘产物后以同一事务提交指针、发布及任务结果。回滚新建发布记录，不改变开发版本或草稿。发布任务不调用模型，也不依赖 Docker 在线。
+
+`scripts/gateway.ts` 监听本机 4180，按精确 Host 提供已发布静态资源，历史成功产物持续可读。Caddy 对外接收 HTTPS，用本机白名单端点授权按项目申请证书；不暴露工作台 API。配置、恢复与部署见 [自动发布](publishing.md)。
+
+发布域名使用 `project_public_ids` 保存的 6 位随机小写字母/数字标识，独立于项目 UUID；通过唯一约束与冲突重试分配，创建后固定。旧发布记录以短域名展示并保留原始审计数据，网关兼容原 UUID 长域名，且新旧入口都遵守项目归属与下线状态。
+
 ## 持久化与恢复
 
 数据库文件为 `.pixloom/pixloom-v3.db`，通过 `PIXLOOM_DATA_DIR` 修改目录。旧 `.pixloom/pixloom.db` 不迁移、不修改。`PRAGMA user_version=3` 标记新结构。
@@ -51,7 +69,7 @@ React 工作台
 
 ## 范围
 
-已实现模板、手工编辑与 Coding Agent 多文件版本闭环。Agent 复用候选文件、统一任务与提交协议；任务 kind/source 均标记 agent，模型、需求和预算存于 tasks.agent JSON 列。现有 v3 数据库自动添加可空 agent 列，无需清空数据库。失败候选源码通过终态任务接口按需读取，界面可载入编辑器后保存；不会自动覆盖草稿。Gemini 真实模型工具循环与人工浏览器交互验收已通过；GPT 仅完成模拟协议测试。自动浏览器验证已接入；HMR、独立预览域、认证、正式发布属于后续阶段。
+已实现模板、手工编辑与 Coding Agent 多文件版本闭环。Agent 复用候选文件、统一任务与提交协议；任务 kind/source 均标记 agent，模型、需求和预算存于 tasks.agent JSON 列。现有 v3 数据库自动添加可空 agent 列，无需清空数据库。失败候选源码通过终态任务接口按需读取，界面可载入编辑器后保存；不会自动覆盖草稿。Gemini 真实模型工具循环与人工浏览器交互验收已通过；GPT 仅完成模拟协议测试。自动浏览器验证与单机静态发布已接入；HMR、独立开发预览域、认证和全栈发布属于后续阶段。
 
 完整接口与决策见 [实施方案](workspace-versions-plan.md)，运行与容器边界见 [Docker 执行环境](docker-runtime.md)。
 

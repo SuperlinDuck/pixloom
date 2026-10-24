@@ -1,3 +1,4 @@
+import { requireWorkspaceUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { DockerRuntime } from '@/lib/runtime/docker'
@@ -11,6 +12,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireWorkspaceUser(request)
     projectById(params.id)
     const health = await runtimeHealth(
       new URL(request.url).searchParams.has('refresh'),

@@ -1,11 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Box,
+  Hammer,
   Check,
   ChevronRight,
   Code2,
+  Download,
+  ExternalLink,
   FileCode2,
   Folder,
   GitCompareArrows,
@@ -13,7 +16,11 @@ import {
   Loader2,
   Monitor,
   Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
   RefreshCw,
+  Rocket,
   Save,
   Smartphone,
   Square,
@@ -31,10 +38,13 @@ import type {
   SystemStatus,
   VersionDetail,
   TaskSummary,
+  Publication,
 } from '@/lib/types'
 import { isActive } from '@/lib/types'
 import { diffFiles } from '@/lib/diff'
 import { useWorkspaceDialog } from './workspace-dialog'
+import { WorkspaceAccount, useWorkspaceAccount } from './workspace-account'
+import { MarkdownReply } from './markdown-reply'
 import type { DockerHealth } from '@/lib/runtime/types'
 
 async function api<T>(
@@ -53,7 +63,11 @@ async function api<T>(
         },
   )
   const data = await response.json()
-  if (!response.ok) throw new Error(data.error || '请求失败')
+  if (!response.ok) {
+    if (response.status === 401)
+      window.dispatchEvent(new Event('pixloom:unauthorized'))
+    throw new Error(data.error || '请求失败')
+  }
   return data
 }
 const equal = (a: SourceFile[], b: SourceFile[]) =>
@@ -100,6 +114,8 @@ type Environment = {
 
 export function Workspace() {
   const { ask, dialog } = useWorkspaceDialog()
+  const account = useWorkspaceAccount()
+  const { canAccess } = account
   const [projects, setProjects] = useState<Project[]>([]),
     [projectId, setProjectId] = useState<string | null>(null)
   const [detail, setDetail] = useState<ProjectDetail | null>(null),
@@ -107,7 +123,10 @@ export function Workspace() {
   const [draft, setDraft] = useState<Draft | null>(null),
     [files, setFiles] = useState<SourceFile[]>([])
   const [file, setFile] = useState('src/App.jsx'),
-    [tab, setTab] = useState<'preview' | 'code' | 'diff' | 'runtime'>('preview')
+    [tab, setTab] = useState<
+      'preview' | 'code' | 'diff' | 'runtime' | 'publish'
+    >('preview')
+  const [publication, setPublication] = useState<Publication | null>(null)
   const [history, setHistory] = useState(false),
     [selected, setSelected] = useState<string | null>(null),
     [historical, setHistorical] = useState<VersionDetail | null>(null)
@@ -120,9 +139,12 @@ export function Workspace() {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
-    [name, setName] = useState(''),
     [summary, setSummary] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  const [projectName, setProjectName] = useState('')
+  const conversationRef = useRef<HTMLDivElement>(null)
+  const followConversation = useRef(true)
   const [provider, setProvider] = useState<Provider>('gemini')
   const [mobile, setMobile] = useState(false),
     [previewKey, setPreviewKey] = useState(0),
@@ -143,17 +165,32 @@ export function Workspace() {
   const conflict =
     !!detail && !!draft && detail.draft.revision !== draft.revision
   const locked = busy || !!active || viewingHistory || conflict
-  const ready = !!status?.workerOnline
+  const ready = canAccess && !!status?.workerOnline
 
   useEffect(() => {
+    if (!canAccess) {
+      setProjectId(null)
+      setProjects([])
+      return
+    }
     const remembered = localStorage.getItem('pixloom-v3-project')
     if (remembered) setProjectId(remembered)
-  }, [])
+  }, [canAccess])
   useEffect(() => {
+    if (!canAccess) return
     if (projectId) localStorage.setItem('pixloom-v3-project', projectId)
     else localStorage.removeItem('pixloom-v3-project')
-  }, [projectId])
+  }, [projectId, canAccess])
   useEffect(() => {
+    if (!menu) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenu(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [menu])
+  useEffect(() => {
+    if (!canAccess) return
     let alive = true
     const refresh = async () => {
       try {
@@ -175,7 +212,7 @@ export function Workspace() {
       alive = false
       clearInterval(timer)
     }
-  }, [])
+  }, [canAccess])
   useEffect(() => {
     setDetail(null)
     setDraft(null)
@@ -186,16 +223,25 @@ export function Workspace() {
     setOlder([])
     setBackups([])
     setEnvironment(null)
+    setPublication(null)
     setError('')
     setNotice('')
     setFile('src/App.jsx')
     setPrompt('')
-    if (!projectId) return
+    setRenaming(false)
+    followConversation.current = true
+    if (!projectId || !canAccess) return
     let alive = true
     const refresh = async () => {
       try {
-        const data = await api<ProjectDetail>(`/api/projects/${projectId}`)
-        if (alive) setDetail(data)
+        const [data, releases] = await Promise.all([
+          api<ProjectDetail>(`/api/projects/${projectId}`),
+          api<Publication>(`/api/projects/${projectId}/releases`),
+        ])
+        if (alive) {
+          setDetail(data)
+          setPublication(releases)
+        }
       } catch (e) {
         if (alive) setError((e as Error).message)
       }
@@ -206,7 +252,7 @@ export function Workspace() {
       alive = false
       clearInterval(timer)
     }
-  }, [projectId])
+  }, [projectId, canAccess])
   useEffect(() => {
     if (!detail || detail.project.id !== projectId) return
     const state = ref.current
@@ -278,7 +324,7 @@ export function Workspace() {
     detail?.versions.find((v) => v.id === selected)?.artifactId,
   ])
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId || !canAccess) return
     let alive = true
     void api<Backup[]>(`${base}/draft-backups`)
       .then((data) => {
@@ -309,6 +355,45 @@ export function Workspace() {
       if (ref.current.projectId === projectId) setDetail(data)
     }
   }, [base, projectId])
+  useEffect(() => {
+    const container = conversationRef.current
+    if (container && followConversation.current)
+      container.scrollTop = container.scrollHeight
+  }, [
+    projectId,
+    detail?.tasks[0]?.id,
+    detail?.tasks[0]?.status,
+    detail?.tasks[0]?.events.length,
+  ])
+  const modelPicker = (
+    <label className="model-select">
+      <select
+        aria-label="生成模型"
+        value={provider}
+        disabled={locked}
+        onChange={(e) => setProvider(e.target.value as Provider)}
+      >
+        {(status?.models || []).map((model) => (
+          <option key={model.provider} value={model.provider}>
+            {model.label} · {model.configured ? model.model : '未配置密钥'}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+  const modelConfigured = !!status?.models.find((m) => m.provider === provider)
+    ?.configured
+  const modelHint = account.loading
+    ? '正在加载账号…'
+    : !canAccess
+      ? '登录后即可开始创建应用。'
+      : !status
+        ? '正在检查生成服务…'
+        : !modelConfigured
+          ? '请在 .env.local 配置所选模型密钥并重启 Web 和 Worker。'
+          : !ready
+            ? 'Worker 未连接，请运行 pnpm dev 或 pnpm worker。'
+            : ''
   async function perform(fn: () => Promise<void>) {
     setBusy(true)
     setError('')
@@ -332,14 +417,32 @@ export function Workspace() {
     setMenu(false)
     setHistory(false)
   }
-  async function create() {
-    if (!name.trim()) return
+  async function createBlank() {
+    if (busy) return
     await perform(async () => {
-      const project = await api<Project>('/api/projects', { name: name.trim() })
+      const project = await api<Project>('/api/projects', {
+        name: '未命名项目',
+      })
       setProjects((list) => [project, ...list])
       setProjectId(project.id)
-      setName('')
       setTab('code')
+    })
+  }
+  async function rename() {
+    if (!projectId || !projectName.trim() || busy) return
+    await perform(async () => {
+      const project = await api<Project>(
+        base,
+        { name: projectName.trim() },
+        'PATCH',
+      )
+      setProjects((list) =>
+        list.map((item) => (item.id === project.id ? project : item)),
+      )
+      setDetail((value) =>
+        value?.project.id === project.id ? { ...value, project } : value,
+      )
+      setRenaming(false)
     })
   }
   async function saveDraft() {
@@ -390,8 +493,29 @@ export function Workspace() {
     })
   }
   async function generate() {
-    if (!prompt.trim()) return
+    if (
+      busy ||
+      active ||
+      viewingHistory ||
+      conflict ||
+      !prompt.trim() ||
+      !ready ||
+      !modelConfigured
+    )
+      return
+    followConversation.current = true
     await perform(async () => {
+      if (!projectId) {
+        const project = await api<Project>('/api/projects', {
+          prompt: prompt.trim(),
+          provider,
+        })
+        setProjects((list) => [project, ...list])
+        setProjectId(project.id)
+        setPrompt('')
+        setTab('preview')
+        return
+      }
       const value = await saveDraft()
       await api(`${base}/tasks`, {
         prompt: prompt.trim(),
@@ -481,6 +605,54 @@ export function Workspace() {
       await refresh()
     })
   }
+  async function downloadVersion() {
+    if (!shown || !projectId || busy) return
+    const version = shown
+    await perform(async () => {
+      const response = await fetch(`${base}/versions/${version.id}/export`, {
+        cache: 'no-store',
+      })
+      if (!response.ok) {
+        const data = await response.json()
+        throw new Error(data.error || '导出失败')
+      }
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `pixloom-${projectId}-v${version.number}.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10000)
+      setNotice(
+        `已导出 v${version.number} 交付包，包含源码和静态产物，不含草稿修改。`,
+      )
+    })
+  }
+  async function publish(
+    action: 'publish' | 'rollback' | 'unpublish',
+    releaseId?: string,
+  ) {
+    if (!publication || busy || active || !ready) return
+    await perform(async () => {
+      await api(`${base}/releases`, {
+        action,
+        expectedReleaseId: publication.live?.id || null,
+        ...(action === 'publish'
+          ? { versionId: shown?.id }
+          : action === 'rollback'
+            ? { releaseId }
+            : {}),
+      })
+      setPublication(await api<Publication>(`${base}/releases`))
+      await refresh()
+      setNotice(
+        action === 'unpublish'
+          ? '下线操作已排队。'
+          : '发布操作已排队，可在此查看进度。',
+      )
+    })
+  }
   const diffs = diffFiles(
     viewingHistory
       ? compare === 'current'
@@ -526,7 +698,9 @@ export function Workspace() {
       return rows
     })
   return (
-    <div className={`app-shell ${projectId ? 'has-project' : ''}`}>
+    <div
+      className={`app-shell ${projectId ? 'has-project' : ''} ${menu ? 'navigation-open' : ''}`}
+    >
       {menu && (
         <button
           className="sidebar-backdrop"
@@ -534,11 +708,20 @@ export function Workspace() {
           onClick={() => setMenu(false)}
         />
       )}
-      <aside className={`sidebar ${menu ? 'open' : ''}`}>
+      <aside
+        id="project-navigation"
+        aria-label="项目导航"
+        className={`sidebar ${menu ? 'open' : ''}`}
+      >
+        <button
+          className="icon-button sidebar-close"
+          aria-label="收起侧边栏"
+          onClick={() => setMenu(false)}
+        >
+          <PanelLeftClose size={18} />
+        </button>
         <button className="brand-button" onClick={() => switchProject(null)}>
-          <span className="brand">
-            pixloom<span className="brand-period">.</span>
-          </span>
+          <span className="brand">pixloom</span>
         </button>
         <button
           className="new-project"
@@ -546,9 +729,9 @@ export function Workspace() {
           disabled={busy}
         >
           <Plus size={17} />
-          新建项目
+          新对话
         </button>
-        <div className="nav-section-label">REACT WORKSPACE</div>
+        <div className="nav-section-label">最近的对话</div>
         <div className="project-list">
           {projects.map((p) => (
             <button
@@ -557,190 +740,341 @@ export function Workspace() {
               className={`project-link ${p.id === projectId ? 'active' : ''}`}
               onClick={() => switchProject(p.id)}
             >
-              <span className="project-glyph">{p.name[0]}</span>
               <span>{p.name}</span>
             </button>
           ))}
-          {!projects.length && (
-            <p className="no-projects">从一个 React 项目开始。</p>
-          )}
+          {!projects.length && <p className="no-projects">从一句想法开始。</p>}
         </div>
         <div className="sidebar-bottom">
-          <div className="local-card">
-            <div className="local-card-title">
-              <span className={`status-dot ${ready ? 'online' : ''}`} />
-              {ready ? 'Worker 已连接' : '等待 Worker 连接'}
-            </div>
-            <p>源码、版本和预览保存在本机。</p>
-            <small>v0.3 · React / Vite</small>
-          </div>
+          <WorkspaceAccount
+            account={account}
+            beforeNavigate={async () => {
+              if (busy) return false
+              return (
+                !dirty ||
+                !!(await ask(
+                  '当前有未保存的编辑，登录或退出将离开此页面。是否继续？',
+                ))
+              )
+            }}
+          />
         </div>
       </aside>
       <main className="main">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <button
-              className="icon-button mobile-menu"
-              onClick={() => setMenu(!menu)}
-              aria-label="项目导航"
-            >
-              <Folder size={17} />
-            </button>
-            <span>工作空间</span>
-            <ChevronRight size={13} />
-            <strong>{detail?.project.name || '新建项目'}</strong>
-          </div>
-          <span className="prototype-tag">本地工作空间</span>
-        </header>
+        {projectId && (
+          <header className="topbar">
+            <div className="breadcrumb">
+              <button
+                className="icon-button mobile-menu"
+                onClick={() => setMenu((open) => !open)}
+                aria-label={menu ? '收起侧边栏' : '展开侧边栏'}
+                title={menu ? '收起侧边栏' : '展开侧边栏'}
+                aria-expanded={menu}
+                aria-controls="project-navigation"
+              >
+                {menu ? (
+                  <PanelLeftClose size={18} />
+                ) : (
+                  <PanelLeftOpen size={18} />
+                )}
+              </button>
+              {renaming ? (
+                <form
+                  className="rename-project"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void rename()
+                  }}
+                >
+                  <input
+                    autoFocus
+                    aria-label="项目名称"
+                    value={projectName}
+                    maxLength={80}
+                    disabled={busy}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setRenaming(false)
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={busy || !projectName.trim()}
+                    aria-label="保存名称"
+                  >
+                    <Check size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label="取消重命名"
+                    onClick={() => setRenaming(false)}
+                  >
+                    <X size={15} />
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <strong>
+                    {projectId
+                      ? detail?.project.name ||
+                        projects.find((p) => p.id === projectId)?.name ||
+                        '正在载入…'
+                      : '新对话'}
+                  </strong>
+                  {projectId && detail && (
+                    <button
+                      className="icon-button"
+                      aria-label="重命名项目"
+                      disabled={busy}
+                      onClick={() => {
+                        setProjectName(detail.project.name)
+                        setRenaming(true)
+                      }}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </header>
+        )}
         {!projectId ? (
           <div className="landing">
+            <button
+              className="icon-button mobile-menu landing-menu"
+              onClick={() => setMenu((open) => !open)}
+              aria-label={menu ? '收起侧边栏' : '展开侧边栏'}
+              title={menu ? '收起侧边栏' : '展开侧边栏'}
+              aria-expanded={menu}
+              aria-controls="project-navigation"
+            >
+              {menu ? (
+                <PanelLeftClose size={18} />
+              ) : (
+                <PanelLeftOpen size={18} />
+              )}
+            </button>
             <div className="welcome">
-              <div className="eyebrow">
-                <Sparkles size={15} />
-                让想法有一个工作空间
-              </div>
-              <h1>从这里，开始构建。</h1>
-              <p className="welcome-copy">
-                创建 React 项目，编辑源码，预览并保留每一次成功的修改。
-              </p>
+              <h1>你想做一个什么应用？</h1>
+              <p className="welcome-copy">从一句想法开始，我们把它一起实现</p>
               <form
-                className="create-workspace"
+                className="composer landing-composer"
                 onSubmit={(e) => {
                   e.preventDefault()
-                  void create()
+                  void generate()
                 }}
               >
-                <label htmlFor="project-name">项目名称</label>
-                <input
-                  id="project-name"
-                  maxLength={80}
-                  placeholder="我的新应用"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
+                <textarea
+                  autoFocus
+                  aria-label="应用需求"
+                  placeholder="例如：做一个待办应用，支持分类、完成标记和筛选…"
+                  value={prompt}
+                  maxLength={8000}
+                  disabled={busy}
+                  onChange={(e) => setPrompt(e.target.value)}
                 />
-                <button
-                  className="primary-button"
-                  disabled={busy || !name.trim()}
-                >
-                  {busy ? (
-                    <Loader2 className="spin" size={16} />
-                  ) : (
-                    <Plus size={16} />
-                  )}
-                  创建 React 项目
-                </button>
+                <div className="composer-bottom">
+                  {modelPicker}
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={
+                      busy || !prompt.trim() || !ready || !modelConfigured
+                    }
+                  >
+                    {busy ? (
+                      <Loader2 className="spin" size={16} />
+                    ) : (
+                      <Sparkles size={16} />
+                    )}
+                    {busy ? '正在开始…' : '开始对话'}
+                  </button>
+                </div>
               </form>
-              <p className="workspace-hint">
-                固定 React / Vite 模板 · AI 修改源码 ·
-                构建与行为验证通过后保存版本
-              </p>
+              {modelHint && (
+                <p className="workspace-hint" role="status">
+                  {modelHint}
+                </p>
+              )}
+              <div className="prompt-examples" aria-label="试试这些想法">
+                {[
+                  '做一个支持分类筛选的待办应用',
+                  '做一个可以暂停和重置的番茄钟',
+                  '做一个展示作品的个人主页',
+                ].map((example) => (
+                  <button
+                    key={example}
+                    disabled={busy}
+                    onClick={() => setPrompt(example)}
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
+              <button
+                className="blank-project-button"
+                disabled={busy || !canAccess}
+                onClick={() => void createBlank()}
+              >
+                <Plus size={14} />
+                创建空白项目
+              </button>
             </div>
           </div>
         ) : (
           <div className="workbench">
             <section className="chat-panel">
-              <div className="panel-title">
-                <span>
-                  <Sparkles size={15} />
-                  Coding Agent
-                </span>
-                <span className="agent-label">
-                  {active ? labels[active.status] : '准备就绪'}
-                </span>
-              </div>
-              <div className="conversation">
+              <div
+                className="conversation"
+                ref={conversationRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget
+                  followConversation.current =
+                    el.scrollHeight - el.scrollTop - el.clientHeight < 100
+                }}
+              >
                 {!detail && <p className="workspace-hint">正在载入项目…</p>}
-                <div className="workspace-guide">
-                  <Box size={22} />
-                  <h2>一个项目，一份源码。</h2>
-                  <p>
-                    描述你想创建的应用，或要求修改现有功能。Agent
-                    会读取源码、编辑并修复构建或浏览器错误，验证通过后保存新版本。
-                  </p>
-                  <small>也可以在源码页手动编辑并构建。</small>
-                </div>
+                {detail &&
+                  !detail.tasks.some((task) => task.kind === 'agent') && (
+                    <div className="workspace-guide">
+                      <Box size={22} />
+                      <h2>从你的想法开始。</h2>
+                      <p>
+                        描述你想创建的应用，或要求修改现有功能。Agent
+                        会读取源码、编辑并修复构建或浏览器错误，验证通过后保存新版本。
+                      </p>
+                      <small>也可以在源码页手动编辑并构建。</small>
+                    </div>
+                  )}
                 {detail?.tasks
                   .slice()
                   .reverse()
                   .map((task) => (
-                    <article
-                      className="agent-message activity-card"
-                      key={task.id}
-                    >
-                      <div className="agent-message-header">
-                        <strong>{task.summary}</strong>
-                        <time>{time(task.createdAt)}</time>
-                      </div>
-                      <div className={`task-state ${task.status}`}>
-                        {isActive(task) ? (
-                          <Loader2 className="spin" size={13} />
-                        ) : task.status === 'completed' ? (
-                          <Check size={13} />
-                        ) : (
-                          <Square size={12} />
-                        )}{' '}
-                        {taskLabel(task)}
-                        {isActive(task) && (
-                          <button
-                            onClick={() =>
-                              void perform(async () => {
-                                await api(`/api/tasks/${task.id}/cancel`, {})
-                                await refresh()
-                              })
-                            }
-                          >
-                            取消
-                          </button>
-                        )}
-                      </div>
+                    <Fragment key={task.id}>
                       {task.agent && (
-                        <p className="workspace-hint">
-                          {task.agent.provider === 'gemini' ? 'Gemini' : 'GPT'}{' '}
-                          · {task.agent.model} · {task.agent.steps} 步 · 输出{' '}
-                          {task.agent.usage.outputTokens} tokens
-                        </p>
+                        <div className="user-message">{task.agent.prompt}</div>
                       )}
-                      <details className="process" open={isActive(task)}>
-                        <summary>执行日志 · {task.events.length}</summary>
-                        <ol>
-                          {task.events.map((event, i) => (
-                            <li key={i}>
-                              <pre className="task-log">{event.message}</pre>
-                            </li>
-                          ))}
-                        </ol>
-                      </details>
-                      {task.error && <p className="task-error">{task.error}</p>}
-                      {task.kind === 'agent' &&
-                        ['failed', 'cancelled'].includes(task.status) && (
-                          <button
-                            className="text-button"
-                            disabled={locked || !draft}
-                            onClick={async () => {
-                              if (
-                                dirty &&
-                                !(await ask(
-                                  '载入候选源码将覆盖本页未保存编辑，是否继续？',
-                                ))
-                              )
-                                return
-                              void perform(async () => {
-                                const value = await api<{
-                                  files: SourceFile[]
-                                }>(`/api/tasks/${task.id}?candidate=1`)
-                                setFiles(value.files)
-                                setSelected(null)
-                                setTab('code')
-                                setNotice(
-                                  '候选源码已载入编辑器，保存草稿后可手动构建或继续 AI 修改',
-                                )
-                              })
-                            }}
-                          >
-                            载入候选源码
-                          </button>
+                      <article className="agent-message activity-card">
+                        <div className="agent-message-header">
+                          <strong>
+                            {task.agent ? 'Pixloom' : task.summary}
+                          </strong>
+                          <time>{time(task.createdAt)}</time>
+                        </div>
+                        <div className="task-status-row">
+                          <details className="task-process">
+                            <summary
+                              className={`task-state ${task.status}`}
+                              aria-label={`${taskLabel(task)}，执行详情`}
+                              title="展开或收起执行详情"
+                            >
+                              {isActive(task) ? (
+                                <Loader2 className="spin" size={13} />
+                              ) : task.status === 'completed' ? (
+                                <Check size={13} />
+                              ) : (
+                                <Square size={12} />
+                              )}
+                              {taskLabel(task)}
+                              <ChevronRight
+                                className="task-process-chevron"
+                                size={13}
+                                aria-hidden="true"
+                              />
+                            </summary>
+                            <div className="process">
+                              {task.agent && (
+                                <p className="workspace-hint">
+                                  {task.agent.provider === 'gemini'
+                                    ? 'Gemini'
+                                    : 'GPT'}{' '}
+                                  · {task.agent.model} · {task.agent.steps} 步 ·
+                                  输出 {task.agent.usage.outputTokens} tokens
+                                </p>
+                              )}
+                              <ol>
+                                {task.events.map((event, i) => (
+                                  <li key={i}>
+                                    <pre className="task-log">
+                                      {event.message}
+                                    </pre>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          </details>
+                          {isActive(task) && (
+                            <button
+                              className="task-cancel"
+                              type="button"
+                              onClick={() =>
+                                void perform(async () => {
+                                  await api(`/api/tasks/${task.id}/cancel`, {})
+                                  await refresh()
+                                })
+                              }
+                            >
+                              取消
+                            </button>
+                          )}
+                        </div>
+                        {task.agent && task.status === 'completed' && (
+                          <MarkdownReply>
+                            {[...task.events]
+                              .reverse()
+                              .find((event) => event.type === 'reply')
+                              ?.message ||
+                              [...task.events]
+                                .reverse()
+                                .find(
+                                  (event) =>
+                                    event.type === 'model' &&
+                                    !event.message.startsWith('模型第 '),
+                                )?.message ||
+                              '修改已完成，预览已更新。'}
+                          </MarkdownReply>
                         )}
-                    </article>
+                        {task.agent && task.status === 'cancelled' && (
+                          <p className="summary-text">
+                            已停止本次生成。你可以继续描述需求。
+                          </p>
+                        )}
+                        {task.error && (
+                          <p className="task-error">{task.error}</p>
+                        )}
+                        {task.kind === 'agent' &&
+                          ['failed', 'cancelled'].includes(task.status) && (
+                            <button
+                              className="text-button"
+                              disabled={locked || !draft}
+                              onClick={async () => {
+                                if (
+                                  dirty &&
+                                  !(await ask(
+                                    '载入候选源码将覆盖本页未保存编辑，是否继续？',
+                                  ))
+                                )
+                                  return
+                                void perform(async () => {
+                                  const value = await api<{
+                                    files: SourceFile[]
+                                  }>(`/api/tasks/${task.id}?candidate=1`)
+                                  setFiles(value.files)
+                                  setSelected(null)
+                                  setTab('code')
+                                  setNotice(
+                                    '候选源码已载入编辑器，保存草稿后可手动构建或继续 AI 修改',
+                                  )
+                                })
+                              }}
+                            >
+                              载入候选源码
+                            </button>
+                          )}
+                      </article>
+                    </Fragment>
                   ))}
               </div>
               <div className="chat-bottom">
@@ -760,23 +1094,7 @@ export function Workspace() {
                     onChange={(e) => setPrompt(e.target.value)}
                   />
                   <div className="composer-bottom">
-                    <label className="model-select">
-                      <select
-                        aria-label="生成模型"
-                        value={provider}
-                        disabled={locked}
-                        onChange={(e) =>
-                          setProvider(e.target.value as Provider)
-                        }
-                      >
-                        {(status?.models || []).map((model) => (
-                          <option key={model.provider} value={model.provider}>
-                            {model.label} ·{' '}
-                            {model.configured ? model.model : '未配置密钥'}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    {modelPicker}
                     <button
                       className="build-button"
                       type="submit"
@@ -790,49 +1108,65 @@ export function Workspace() {
                       }
                     >
                       <Sparkles size={14} />
-                      开始生成
+                      发送
                     </button>
                   </div>
                 </form>
-                {!status?.models.find((m) => m.provider === provider)
-                  ?.configured && (
-                  <p className="workspace-hint">
-                    请在 .env.local 配置所选模型密钥并重启 Web 和 Worker。
+                {modelHint && (
+                  <p className="workspace-hint" role="status">
+                    {modelHint}
                   </p>
                 )}
-                <p className="workspace-hint">
-                  草稿可随时保存；版本仅在构建验证通过后创建。手工构建仅检查编译；AI
-                  任务另有浏览器加载与指定行为测试。
-                </p>
+                {viewingHistory && (
+                  <p className="workspace-hint">
+                    正在查看历史版本，返回草稿后可继续对话。
+                  </p>
+                )}
               </div>
             </section>
             <section className="preview-panel">
               <div className="preview-toolbar">
                 <div className="tabs">
-                  {(['preview', 'code', 'diff', 'runtime'] as const).map(
-                    (key, i) => (
-                      <button
-                        key={key}
-                        className={tab === key ? 'active' : ''}
-                        onClick={async () => {
-                          setTab(key)
-                          if (key === 'runtime') void loadEnvironment()
-                        }}
-                      >
-                        {
-                          [
-                            <Monitor size={14} key="p" />,
-                            <Code2 size={14} key="c" />,
-                            <GitCompareArrows size={14} key="d" />,
-                            <Box size={14} key="r" />,
-                          ][i]
-                        }
-                        {['预览', '源码', '差异', '环境'][i]}
-                      </button>
-                    ),
-                  )}
+                  {(
+                    ['preview', 'code', 'diff', 'runtime', 'publish'] as const
+                  ).map((key, i) => (
+                    <button
+                      key={key}
+                      className={tab === key ? 'active' : ''}
+                      onClick={async () => {
+                        setTab(key)
+                        if (key === 'runtime') void loadEnvironment()
+                      }}
+                    >
+                      {
+                        [
+                          <Monitor size={14} key="p" />,
+                          <Code2 size={14} key="c" />,
+                          <GitCompareArrows size={14} key="d" />,
+                          <Box size={14} key="r" />,
+                          <Rocket size={14} key="s" />,
+                        ][i]
+                      }
+                      {['预览', '源码', '差异', '环境', '发布'][i]}
+                    </button>
+                  ))}
                 </div>
                 <div className="preview-actions">
+                  <button
+                    className="icon-button"
+                    aria-label={
+                      shown ? `导出 v${shown.number} 交付包` : '导出交付包'
+                    }
+                    title={
+                      shown
+                        ? `导出 v${shown.number} 交付包（不含草稿）`
+                        : '首次构建成功后可导出'
+                    }
+                    disabled={busy || !shown}
+                    onClick={() => void downloadVersion()}
+                  >
+                    <Download size={16} />
+                  </button>
                   <button
                     className={`icon-button ${history ? 'pressed' : ''}`}
                     aria-label="版本历史"
@@ -869,7 +1203,7 @@ export function Workspace() {
                   </button>
                   <button onClick={() => setSelected(null)}>返回草稿</button>
                 </div>
-              ) : (
+              ) : tab === 'code' || tab === 'diff' ? (
                 <div className="draft-toolbar">
                   <span className={`draft-label ${dirty ? 'unsaved' : ''}`}>
                     {dirty
@@ -901,7 +1235,7 @@ export function Workspace() {
                     </button>
                   </div>
                 </div>
-              )}
+              ) : null}
               {conflict && (
                 <div className="error-banner">
                   草稿已在其他页面或任务中更新。未保存编辑保留在本页。
@@ -911,28 +1245,51 @@ export function Workspace() {
               {tab === 'preview' && (
                 <>
                   <div className="preview-location">
-                    <span className="location-dot" />
-                    <span>
-                      {shown
-                        ? `构建产物预览 / v${shown.number}`
-                        : '等待首次构建'}
-                    </span>
-                    <button
-                      className="text-button"
-                      disabled={
-                        busy || !!active || !shown || !ready || conflict
-                      }
-                      onClick={() => void rebuildPreview()}
-                    >
-                      重建此版本预览
-                    </button>
-                    <button
-                      className="icon-button"
-                      aria-label="刷新预览"
-                      onClick={() => setPreviewKey((k) => k + 1)}
-                    >
-                      <RefreshCw size={13} />
-                    </button>
+                    <div className="preview-location-label">
+                      <span>{shown ? '应用预览' : '等待首次构建'}</span>
+                      {shown && (
+                        <span className="preview-version">v{shown.number}</span>
+                      )}
+                    </div>
+                    <div className="preview-location-actions">
+                      <button
+                        className="preview-rebuild"
+                        title="重新构建此版本的预览"
+                        disabled={
+                          busy || !!active || !shown || !ready || conflict
+                        }
+                        onClick={() => void rebuildPreview()}
+                      >
+                        <Hammer size={13} />
+                        重新构建
+                      </button>
+                      <span className="toolbar-divider" aria-hidden="true" />
+                      <button
+                        className="icon-button"
+                        aria-label="刷新预览"
+                        title="刷新预览"
+                        disabled={!shown}
+                        onClick={() => setPreviewKey((k) => k + 1)}
+                      >
+                        <RefreshCw size={14} />
+                      </button>
+                      <button
+                        className="icon-button"
+                        aria-label="在新标签页打开预览"
+                        title="在新标签页打开预览"
+                        disabled={!shown}
+                        onClick={() => {
+                          if (shown)
+                            window.open(
+                              `/api/previews/${shown.artifactId}/index.html`,
+                              '_blank',
+                              'noopener,noreferrer',
+                            )
+                        }}
+                      >
+                        <ExternalLink size={14} />
+                      </button>
+                    </div>
                   </div>
                   <div className="preview-canvas">
                     {shown ? (
@@ -948,9 +1305,13 @@ export function Workspace() {
                       <div className="preview-empty">
                         <Box size={34} />
                         <h2>
-                          {active ? '正在构建你的项目' : '还没有可用版本'}
+                          {active ? taskLabel(active) : '预览会出现在这里'}
                         </h2>
-                        <p>输入应用需求开始生成，或在源码页编辑并构建。</p>
+                        <p>
+                          {active
+                            ? '你可以在对话中查看进度，完成后会在这里显示应用。'
+                            : '在左侧描述你的想法，或打开源码开始编辑。'}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -1163,6 +1524,116 @@ export function Workspace() {
                   <p className="workspace-hint">
                     固定依赖 · 无网络 · 非 root · 512 MiB 内存 · 1 CPU
                   </p>
+                </div>
+              )}
+              {tab === 'publish' && (
+                <div className="publication-panel">
+                  <h2>应用发布</h2>
+                  <p>
+                    选择已保存版本上线。草稿修改和版本恢复不会自动改变线上应用。
+                  </p>
+                  {publication?.live ? (
+                    <div className="publication-live">
+                      <strong>
+                        线上版本 v{publication.live.versionNumber}
+                      </strong>
+                      <a
+                        href={publication.live.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {publication.live.url}
+                        <ExternalLink size={14} />
+                      </a>
+                      <button
+                        disabled={busy || !!active || !ready}
+                        onClick={async () => {
+                          if (
+                            await ask(
+                              '下线后该项目的所有发布地址将停止提供内容，是否继续？',
+                            )
+                          )
+                            void publish('unpublish')
+                        }}
+                      >
+                        下线应用
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="workspace-hint">尚未发布</p>
+                  )}
+                  {publication && !publication.enabled && (
+                    <p className="workspace-hint">{publication.reason}</p>
+                  )}
+                  <div className="publication-controls">
+                    <button
+                      className="primary-button"
+                      disabled={
+                        busy ||
+                        !!active ||
+                        !ready ||
+                        !shown ||
+                        !publication?.enabled ||
+                        (publication.live?.versionId === shown.id &&
+                          publication.live?.artifactId === shown.artifactId)
+                      }
+                      onClick={() => void publish('publish')}
+                    >
+                      <Rocket size={15} />
+                      {shown ? `发布 v${shown.number}` : '首次构建成功后可发布'}
+                    </button>
+                    {shown && <span>仅发布版本快照，不包含草稿修改</span>}
+                  </div>
+                  <h3>发布记录</h3>
+                  {!publication?.releases.length && (
+                    <p className="workspace-hint">
+                      发布和回滚记录会显示在这里。
+                    </p>
+                  )}
+                  {publication?.releases.map((release) => (
+                    <div className="release-item" key={release.id}>
+                      <div>
+                        <strong>
+                          v{release.versionNumber} ·{' '}
+                          {release.action === 'rollback'
+                            ? '回滚'
+                            : release.action === 'unpublish'
+                              ? '下线'
+                              : '发布'}
+                        </strong>
+                        <span>
+                          {
+                            {
+                              queued: '排队中',
+                              staging: '正在暂存',
+                              verifying: '正在验证',
+                              published: '发布就绪',
+                              unpublished: '已下线',
+                              failed: '失败',
+                              cancelled: '已取消',
+                            }[release.status]
+                          }
+                          {publication.live?.id === release.id && ' · 当前线上'}
+                        </span>
+                      </div>
+                      <time>{time(release.createdAt)}</time>
+                      {release.error && <p role="alert">{release.error}</p>}
+                      {release.status === 'published' &&
+                        !(
+                          publication.live?.versionId === release.versionId &&
+                          publication.live?.artifactId === release.artifactId
+                        ) && (
+                          <button
+                            disabled={
+                              busy || !!active || !ready || !publication.enabled
+                            }
+                            onClick={() => void publish('rollback', release.id)}
+                          >
+                            回滚到此次发布
+                          </button>
+                        )}
+                    </div>
+                  ))}
                 </div>
               )}
               {history && (

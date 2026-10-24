@@ -49,12 +49,14 @@ export type TaskKind =
   | 'start'
   | 'stop'
   | 'remove'
+  | 'publish'
+  | 'unpublish'
 export type TaskStatus =
   'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type TaskEvent = {
   at: string
   message: string
-  type?: 'model' | 'tool' | 'build' | 'validation' | 'ready' | 'usage'
+  type?: 'model' | 'tool' | 'build' | 'validation' | 'ready' | 'usage' | 'reply'
   tool?: string
 }
 export type Task = {
@@ -109,5 +111,38 @@ export type FileOperation =
   | { type: 'delete'; path: string }
   | { type: 'rename'; path: string; to: string }
 export type BuildAsset = { path: string; contentType: string; body: string }
+export type Release = {
+  id: string
+  projectId: string
+  taskId: string
+  versionId: string
+  versionNumber: number
+  artifactId: string
+  sourceHash: string
+  templateId: string
+  action: 'publish' | 'rollback' | 'unpublish'
+  status:
+    | 'queued'
+    | 'staging'
+    | 'verifying'
+    | 'published'
+    | 'unpublished'
+    | 'failed'
+    | 'cancelled'
+  domain: string
+  url: string
+  previousReleaseId: string | null
+  restoredFromReleaseId: string | null
+  error: string | null
+  createdAt: string
+  updatedAt: string
+}
+export type Publication = {
+  enabled: boolean
+  reason: string | null
+  domain: string | null
+  live: Release | null
+  releases: Release[]
+}
 export const isActive = (task: { status: TaskStatus }) =>
   task.status === 'queued' || task.status === 'running'

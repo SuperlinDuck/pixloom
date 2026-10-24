@@ -16,7 +16,21 @@ pnpm dev
 
 打开 http://127.0.0.1:3000 。`pnpm dev` 同时启动 Web 与独立 Worker。无需模型 Key 即可使用模板、源码编辑和版本管理；使用 AI 生成需配置 Gemini 或 GPT 密钥，并重启 Web 与 Worker。
 
-创建 React 项目后，Worker 自动尝试构建固定模板并保存 v1。Docker 或镜像不可用时，草稿仍然存在；准备好环境后点击“构建并保存版本”重试。Worker 离线时创建项目仅保存模板草稿。
+首页直接描述应用需求并发送，后台自动创建项目并启动 AI 生成；无需先命名或构建空模板。项目名称从首条需求截取，可在顶部修改。首次生成通过构建与行为验证后保存为 v1。
+
+也可以从首页的“创建空白项目”进入源码编辑。此入口会让 Worker 构建固定模板并保存 v1；Worker 离线时仅保存模板草稿，准备好环境后可手动构建。
+
+## Google 登录
+
+侧边栏底部提供“使用 Google 登录”；登录后显示头像、姓名、邮箱和退出按钮。使用 Google 官方认证库验证登录信息，登录凭证保存在 HttpOnly Cookie，会话七天到期，退出后立即撤销服务端会话。
+
+1. 在 [Google Cloud Console](https://console.cloud.google.com/auth/clients) 创建 **Web 应用**类型的 OAuth 客户端，配置授权同意屏幕；应用处于测试状态时，添加自己的邮箱作为测试用户。
+2. 添加授权重定向 URI：`http://127.0.0.1:3000/api/auth/callback/google`。
+3. 在 `.env.local` 填写 `PIXLOOM_GOOGLE_CLIENT_ID`、`PIXLOOM_GOOGLE_CLIENT_SECRET` 和 `PIXLOOM_AUTH_URL=http://127.0.0.1:3000`，重启 Web。使用其他本机地址或端口时，同步修改应用地址及 Google 回调地址；不要混用 `localhost` 与 `127.0.0.1`。使用 Whistle 代理 `https://pixloom.io` 时，`PIXLOOM_AUTH_URL` 只填 `https://pixloom.io`，Google 回调填写 `https://pixloom.io/api/auth/callback/google`；不要把回调路径填入 `PIXLOOM_AUTH_URL`，也不要混用带 `www` 和不带 `www` 的域名。
+
+首次成功登录的 Google 账号绑定整个现有工作空间，后续其他账号不能登录。这里仍是本机单工作空间，不提供多用户租户隔离。完全未配置凭证时沿用本机访客模式；填写任意凭证后，项目、源码、任务、版本、导出和发布操作都要求登录，配置不完整时拒绝访问。不可变预览资源仍可通过随机产物 ID 读取，以兼容隔离 iframe；预览链接不应视作私有资源。工作台允许本机 Host 和 `PIXLOOM_AUTH_URL` 明确配置的来源，支持 Whistle 在 HTTPS 域名与本机 HTTP 服务之间转发；仍不能直接作为公网多用户平台部署。
+
+认证流程遵循 [Google OpenID Connect 服务端流程](https://developers.google.com/identity/openid-connect/openid-connect)，校验一次性 state、PKCE、nonce、签名、受众和到期时间，仅请求姓名、邮箱和头像，不保存 Google access token / refresh token。
 
 ## 工作流程
 
@@ -27,12 +41,14 @@ pnpm dev
 5. 打开**版本历史**查看快照；查看历史不会切换当前版本。
 6. **恢复为新版本**会保留历史并创建新的版本。例如恢复 v1 得到 v3，后续修改基于 v3。被覆盖的已保存草稿在历史面板的备份区可找回。
 7. **环境**页管理容器。停止、移除容器不会删除源码、版本及已保存的预览。
+8. 右上角**导出交付包**下载当前查看版本的 ZIP，包含源码、独立静态站点、版本清单及运行说明。查看历史时导出该历史版本，不包含草稿修改；无需 Worker 或容器在线。详见 [交付链路](docs/delivery.md)。
+9. **发布**页支持上线指定版本、回滚历史发布及下线。Worker 校验持久化产物后切换线上指针，独立网关按项目域名提供站点，Caddy 负责公网 HTTPS。配置见 [自动发布](docs/publishing.md)。
 
 版本预览绑定持久化构建产物，不受下一次构建失败影响。可以重新构建某个版本的预览，不增加源码版本；要求模板镜像摘要与该版本一致。历史版本恢复可直接复用其原有产物，不必调用模型或重新构建。
 
 ## AI 生成与继续修改
 
-创建项目、首次模板构建结束后，在左侧选择模型并输入“创建待办应用”，再输入“增加分类筛选”。每次请求基于已保存草稿与当前版本；提交前会先保存本页源码编辑。历史浏览模式下不能发起生成。
+首页选择模型并输入“创建待办应用”，发送后进入对话与预览；完成后可继续输入“增加分类筛选”。对话显示完整需求和完成说明，执行详情默认折叠。每次请求基于已保存草稿与当前版本；提交前会先保存本页源码编辑。历史浏览模式下不能发起生成。模型未配置或 Worker 离线时会保留输入并提示，不创建空项目。
 
 Agent 可以列出、读取和搜索候选源码，完整写入、精确编辑或删除文件，运行固定构建并读取错误。每次成功构建后自动检查预览加载、页面异常与控制台错误；Agent 还必须通过 `browser_test` 操作和断言所请求功能，才能创建 AI 版本。浏览器失败会反馈给 Agent 修复，源码变化后须重新验证。失败或取消时保留原草稿、版本和预览，候选源码保存在任务中，可点击“载入候选源码”检查、保存并继续修改。
 
@@ -80,20 +96,24 @@ pnpm build
 pnpm sandbox:doctor
 pnpm sandbox:verify    # Docker 资源隔离、文件读写、构建与预览
 pnpm workspace:verify  # 临时数据库 + Docker：v1/v2、失败保留、恢复 v3、继续 v4
+pnpm delivery:verify   # 临时数据库 + Docker + ZIP 解包 + 独立静态站点浏览器交互
+pnpm publish:verify    # 临时数据库 + Docker + 真实 Caddy + 发布/更新/失败保留/回滚/下线
 ```
 
-两个容器验证脚本仅操作自己创建的测试容器，并在结束时清理容器；工作空间验证还清理其临时数据库。生产模式需要同时运行 `pnpm start` 和 `pnpm worker`。
+容器验证脚本仅操作自己创建的测试容器，并在结束时清理；工作空间、Agent、交付和发布验证使用并清理独立临时数据库。交付验证还需要 Python 3。发布验证还需 Caddy（可设置 `PIXLOOM_CADDY_BIN`）。生产模式同时运行 `pnpm start`、`pnpm worker`；启用发布后还需 `pnpm gateway` 和公网入口 Caddy。
 
 ## 当前限制与下一步
 
 已提供对话生成入口和模板/手工编辑闭环。当前工具循环完成确定性回归、Docker 验证和 Gemini 两轮真实生成及浏览器交互验收；自动浏览器反馈修复循环已接入；GPT 真实调用尚未验收。
 
-预览使用受限 sandbox iframe 与 CSP，禁止应用外部网络、表单提交、弹窗及访问工作台。手工构建仅验证编译；AI 任务的浏览器测试只覆盖给定断言，不保证所有需求均正确。尚无 HMR、GitHub 同步、多分支、真实后端、正式发布、用户认证和租户授权。
+预览使用受限 sandbox iframe 与 CSP，禁止应用外部网络、表单提交、弹窗及访问工作台。手工构建仅验证编译；AI 任务的浏览器测试只覆盖给定断言，不保证所有需求均正确。已实现单机静态自动发布与 Caddy 接入；尚无 HMR、GitHub 同步、多分支、真实后端和多用户租户授权。
 
-Web 默认绑定 `127.0.0.1`，API 只接受本机 Host 并拒绝跨站平台请求；仅预览 GET 资源允许 opaque-origin iframe 加载。请勿通过反向代理公开部署。
+Web 默认绑定 `127.0.0.1`，API 只接受本机 Host 并拒绝跨站平台请求；仅预览 GET 资源允许 opaque-origin iframe 加载。当前工作台保持本机/SSH 隧道访问，Caddy 只公开独立发布网关，不反向代理工作台。
 
 - [下一步实施计划](docs/roadmap.md)
 - [多文件工作空间与版本方案](docs/workspace-versions-plan.md)
 - [当前架构](docs/architecture.md)
+- [交付链路与版本导出](docs/delivery.md)
+- [自动发布与 Caddy 网关](docs/publishing.md)
 - [Docker 执行环境](docs/docker-runtime.md)
 - [Atoms 调研](docs/atoms-research.md)

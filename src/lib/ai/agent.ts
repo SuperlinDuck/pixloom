@@ -254,6 +254,7 @@ export async function runCodingAgent(
       addEvent(task, '构建、页面加载与指定行为测试通过，预览就绪', {
         type: 'ready',
       })
+      addEvent(task, turn.text.slice(0, 4000), { type: 'reply' })
       addEvent(
         task,
         `模型累计用量：输入 ${state.usage.inputTokens} / 输出 ${state.usage.outputTokens} tokens`,

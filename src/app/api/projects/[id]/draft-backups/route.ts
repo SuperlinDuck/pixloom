@@ -1,10 +1,15 @@
+import { requireWorkspaceUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { draftBackups, recoverDraftBackup } from '@/lib/store'
 import { errorResponse, readJson } from '@/lib/http'
 export const dynamic = 'force-dynamic'
-export async function GET(_: Request, { params }: { params: { id: string } }) {
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
   try {
+    requireWorkspaceUser(request)
     return NextResponse.json(draftBackups(params.id))
   } catch (e) {
     return errorResponse(e)

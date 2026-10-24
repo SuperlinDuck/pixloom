@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { ZodError } from 'zod'
 import { StoreError } from './store'
 import { RuntimeError } from './runtime/types'
+import { requireWorkspaceUser } from './auth'
+import { workspaceMutationAllowed } from './workspace-origin'
 
 export function errorResponse(error: unknown) {
   if (error instanceof StoreError || error instanceof RuntimeError)
@@ -23,10 +25,7 @@ export function errorResponse(error: unknown) {
   )
 }
 export function checkMutation(request: Request, maxBytes = 32000) {
-  const origin = request.headers.get('origin')
-  const url = new URL(request.url)
-  const host = request.headers.get('host') || url.host
-  if (origin && new URL(origin).host !== host)
+  if (!workspaceMutationAllowed(request))
     throw new StoreError('不允许跨站请求', 403)
   if (!request.headers.get('content-type')?.includes('application/json'))
     throw new StoreError('请求必须使用 JSON', 415)
@@ -34,6 +33,7 @@ export function checkMutation(request: Request, maxBytes = 32000) {
   if (size > maxBytes) throw new StoreError('请求过大', 413)
 }
 export async function readJson(request: Request, maxBytes = 32000) {
+  requireWorkspaceUser(request)
   checkMutation(request, maxBytes)
   const text = await request.text()
   if (Buffer.byteLength(text) > maxBytes) throw new StoreError('请求过大', 413)
