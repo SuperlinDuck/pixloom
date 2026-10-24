@@ -7,8 +7,6 @@ import {
   releaseWorker,
 } from '../src/lib/store'
 import { runTask } from '../src/lib/runner'
-import { claimRuntimeJob } from '../src/lib/runtime/store'
-import { runRuntimeJob } from '../src/lib/runtime/runner'
 
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production')
 const owner = randomUUID()
@@ -24,14 +22,9 @@ async function main() {
   }, 3000)
   try {
     while (!shutdown.signal.aborted) {
-      const task = claimTask()
-      if (task) await runTask(task, undefined, shutdown.signal)
-      else {
-        const runtimeJob = claimRuntimeJob()
-        if (runtimeJob)
-          await runRuntimeJob(runtimeJob, undefined, shutdown.signal)
-        else await new Promise((resolve) => setTimeout(resolve, 500))
-      }
+      const task = claimTask(owner)
+      if (task) await runTask(task, undefined, shutdown.signal, owner)
+      else await new Promise((resolve) => setTimeout(resolve, 500))
     }
   } finally {
     clearInterval(pulse)

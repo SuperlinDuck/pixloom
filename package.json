@@ -1,6 +1,6 @@
 {
   "name": "pixloom",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "concurrently -k -n web,worker \"next dev -H 127.0.0.1\" \"tsx watch scripts/worker.ts\"",
@@ -13,7 +13,12 @@
     "format:check": "prettier --check src scripts tests sandbox docs README.md next.config.js package.json vitest.config.mts",
     "sandbox:doctor": "tsx scripts/sandbox.ts doctor",
     "sandbox:prepare": "tsx scripts/sandbox.ts prepare",
-    "sandbox:verify": "tsx scripts/sandbox.ts verify"
+    "sandbox:verify": "tsx scripts/sandbox.ts verify",
+    "workspace:verify": "tsx scripts/verify-workspace.ts",
+    "agent:doctor": "tsx scripts/agent-doctor.ts",
+    "agent:verify": "tsx scripts/verify-agent.ts",
+    "browser:install": "playwright install chromium",
+    "browser:verify": "PIXLOOM_BROWSER_TESTS=1 vitest run tests/browser.test.ts"
   },
   "dependencies": {
     "@next/env": "^14.2.35",
@@ -21,6 +26,7 @@
     "lucide-react": "^0.379.0",
     "next": "^14.2.35",
     "parse5": "^7.3.0",
+    "playwright": "^1.64.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tsx": "^4.20.0",

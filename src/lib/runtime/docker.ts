@@ -12,7 +12,7 @@ import {
   type SourceFile,
 } from './types'
 
-export const RUNTIME_IMAGE = 'pixloom-runtime:react-v1'
+export const RUNTIME_IMAGE = 'pixloom-runtime:react-v2'
 const MANAGED_LABEL = 'dev.pixloom.runtime'
 const OWNER_LABEL = 'dev.pixloom.project'
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
@@ -99,7 +99,7 @@ export const dockerCommand: DockerCommand = (args, options = {}) =>
       else stderr += chunk.toString()
       if (
         Buffer.byteLength(stdout) + Buffer.byteLength(stderr) >
-        (options.maxOutput || 4 * 1024 * 1024)
+        (options.maxOutput || 12 * 1024 * 1024)
       )
         finishError(new RuntimeError('Docker 输出超过限制', 413))
     }
@@ -391,10 +391,38 @@ export class DockerRuntime implements ProjectRuntime {
     projectId: string,
     command: 'build',
     signal?: AbortSignal,
+    artifactId?: string,
   ): Promise<CommandResult> {
     if (command !== 'build')
       throw new RuntimeError('仅允许固定的 Vite 构建命令')
-    return this.control(projectId, { op: 'build' }, signal, 100000)
+    if (artifactId && !UUID.test(artifactId))
+      throw new RuntimeError('产物 ID 无效')
+    return this.control(projectId, { op: 'build', artifactId }, signal, 100000)
+  }
+  async templateId() {
+    const result = await this.command([
+      'image',
+      'inspect',
+      '--format',
+      '{{.Id}}',
+      RUNTIME_IMAGE,
+    ])
+    return check(result, '无法读取模板镜像摘要').trim()
+  }
+  async replaceFiles(
+    projectId: string,
+    files: SourceFile[],
+    signal?: AbortSignal,
+  ) {
+    validateFiles(files)
+    await this.control(projectId, { op: 'replace', files }, signal)
+  }
+  async exportBuild(projectId: string, signal?: AbortSignal) {
+    return this.control<import('../types').BuildAsset[]>(
+      projectId,
+      { op: 'export' },
+      signal,
+    )
   }
   async logs(projectId: string) {
     if ((await this.state(projectId)) === 'absent') return ''

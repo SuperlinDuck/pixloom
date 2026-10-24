@@ -8,9 +8,7 @@ export function middleware(request: NextRequest) {
     : host.split(':')[0]
   const previewRead =
     request.method === 'GET' &&
-    /^\/api\/runtime-preview\/[a-f0-9-]{36}(?:\/|$)/.test(
-      request.nextUrl.pathname,
-    )
+    /^\/api\/previews\/[a-f0-9-]{36}(?:\/|$)/.test(request.nextUrl.pathname)
   if (
     !['localhost', '127.0.0.1', '[::1]'].includes(hostname) ||
     (request.headers.get('sec-fetch-site') === 'cross-site' && !previewRead)

@@ -7,7 +7,8 @@ export function validateFiles(files: SourceFile[]) {
   try {
     return checkFiles(files)
   } catch (error) {
-    throw new RuntimeError((error as Error).message)
+    const message = (error as Error).message
+    throw new RuntimeError(message, /超过/.test(message) ? 413 : 400)
   }
 }
 export function validateSourcePath(file: string) {

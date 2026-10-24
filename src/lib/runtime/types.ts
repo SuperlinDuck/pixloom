@@ -1,35 +1,9 @@
 export type SourceFile = { path: string; content: string }
-export type RuntimeAction =
-  'create' | 'start' | 'build' | 'stop' | 'remove' | 'write'
-export type RuntimeState = 'absent' | 'running' | 'ready' | 'stopped' | 'error'
-export type RuntimeJob = {
-  id: string
-  projectId: string
-  action: RuntimeAction
-  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
-  payload: { path?: string; content?: string }
-  events: { at: string; message: string }[]
-  error: string | null
-  createdAt: string
-  updatedAt: string
-}
-export type RuntimeWorkspace = {
-  projectId: string
-  token: string
-  state: RuntimeState
-  built: boolean
-  files: SourceFile[]
-  updatedAt: string
-}
 export type DockerHealth = {
   available: boolean
   imageReady: boolean
   reason: string | null
   serverVersion?: string
-}
-export type RuntimeDetail = {
-  workspace: RuntimeWorkspace | null
-  jobs: RuntimeJob[]
 }
 export type CommandResult = {
   exitCode: number
@@ -74,7 +48,18 @@ export interface ProjectRuntime {
     projectId: string,
     command: 'build',
     signal?: AbortSignal,
+    artifactId?: string,
   ): Promise<CommandResult>
+  replaceFiles(
+    projectId: string,
+    files: SourceFile[],
+    signal?: AbortSignal,
+  ): Promise<void>
+  exportBuild(
+    projectId: string,
+    signal?: AbortSignal,
+  ): Promise<import('../types').BuildAsset[]>
+  templateId(): Promise<string>
   logs(projectId: string): Promise<string>
   preview(projectId: string, path: string): Promise<PreviewAsset>
 }

@@ -13,7 +13,9 @@ async function input() {
   }
   return JSON.parse(text)
 }
-async function build() {
+async function build(artifactId) {
+  if (artifactId && !/^[a-f0-9-]{36}$/.test(artifactId))
+    throw new Error('产物 ID 无效')
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -25,7 +27,17 @@ async function build() {
         '--configLoader',
         'native',
       ],
-      { cwd: '/workspace', detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
+      {
+        cwd: '/workspace',
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          ...(artifactId
+            ? { PIXLOOM_PREVIEW_BASE: `/api/previews/${artifactId}/` }
+            : {}),
+        },
+      },
     )
     let output = '',
       timedOut = false
@@ -54,8 +66,10 @@ async function build() {
 }
 async function main() {
   const request = await input()
-  if (request.op === 'init') {
+  if (request.op === 'init' || request.op === 'replace') {
     const files = validateFiles(request.files)
+    for (const name of ['src', 'index.html', 'dist', '.vite'])
+      await fs.rm('/workspace/' + name, { recursive: true, force: true })
     try {
       await fs.symlink(
         '/opt/pixloom/template/node_modules',
@@ -103,7 +117,50 @@ async function main() {
     await tools.write(request.path, request.content)
     return { ok: true }
   }
-  if (request.op === 'build') return build()
+  if (request.op === 'build') return build(request.artifactId)
+  if (request.op === 'export') {
+    const path = require('node:path')
+    const assets = []
+    let total = 0
+    async function walk(relative) {
+      const target = path.join('/workspace/dist', relative)
+      const stat = await fs.lstat(target)
+      if (stat.isSymbolicLink()) throw new Error('构建资源不允许符号链接')
+      if (stat.isDirectory()) {
+        if (relative.split('/').length > 12) throw new Error('构建资源目录过深')
+        for (const name of await fs.readdir(target)) {
+          if (!/^[a-zA-Z0-9_-][a-zA-Z0-9_.-]*$/.test(name))
+            throw new Error('构建资源路径无效')
+          await walk(relative ? relative + '/' + name : name)
+        }
+      } else {
+        if (
+          !stat.isFile() ||
+          stat.size > 2 * 1024 * 1024 ||
+          assets.length >= 128
+        )
+          throw new Error('构建资源超过限制')
+        total += stat.size
+        if (total > 8 * 1024 * 1024) throw new Error('构建产物超过 8 MiB')
+        const handle = await fs.open(
+          target,
+          require('node:fs').constants.O_RDONLY |
+            require('node:fs').constants.O_NOFOLLOW,
+        )
+        try {
+          assets.push({
+            path: relative,
+            contentType: 'application/octet-stream',
+            body: (await handle.readFile()).toString('base64'),
+          })
+        } finally {
+          await handle.close()
+        }
+      }
+    }
+    await walk('')
+    return assets
+  }
   if (request.op === 'preview') {
     if (
       typeof request.path !== 'string' ||

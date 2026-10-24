@@ -1,14 +1,13 @@
 import { NextResponse } from 'next/server'
-import { restoreVersion } from '@/lib/store'
-import { errorResponse, readJson } from '@/lib/http'
-export async function POST(
-  request: Request,
+import { getVersion } from '@/lib/store'
+import { errorResponse } from '@/lib/http'
+export const dynamic = 'force-dynamic'
+export async function GET(
+  _: Request,
   { params }: { params: { id: string; versionId: string } },
 ) {
   try {
-    await readJson(request)
-    restoreVersion(params.id, params.versionId)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json(getVersion(params.id, params.versionId))
   } catch (e) {
     return errorResponse(e)
   }
