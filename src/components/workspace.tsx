@@ -453,13 +453,13 @@ function WorkspaceSession({
   const modelConfigured = !!status?.models.find((m) => m.provider === provider)
     ?.configured
   const modelHint = account.loading
-    ? '正在加载账号…'
+    ? ''
     : !canAccess
       ? account.session.user
         ? '兑换邀请码后即可开始创建应用。'
         : '登录后兑换邀请码，即可开始创建应用。'
       : !status
-        ? '正在检查生成服务…'
+        ? ''
         : !modelConfigured
           ? '请在 .env.local 配置 Gemini 密钥并重启 Web 和 Worker。'
           : account.session.usage?.remainingCredits === 0
@@ -484,16 +484,6 @@ function WorkspaceSession({
     if (!(await navigate({ ...workspaceHome, projectId: id }))) return
     setMenu(false)
     setHistory(false)
-  }
-  async function createBlank() {
-    if (busy) return
-    await perform(async () => {
-      const project = await api<Project>('/api/projects', {
-        name: '未命名项目',
-      })
-      setProjects((list) => [project, ...list])
-      await navigate({ ...workspaceHome, projectId: project.id, tab: 'code' })
-    })
   }
   async function rename() {
     if (!projectId || !projectName.trim() || busy) return
@@ -996,14 +986,6 @@ function WorkspaceSession({
                   </button>
                 ))}
               </div>
-              <button
-                className="blank-project-button"
-                disabled={busy || !canAccess}
-                onClick={() => void createBlank()}
-              >
-                <Plus size={14} />
-                创建空白项目
-              </button>
             </div>
           </div>
         ) : (
