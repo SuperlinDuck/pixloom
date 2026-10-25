@@ -23,11 +23,13 @@
 
 ## 一次性从旧 PM2 部署迁移
 
+以本节为首次自动部署的执行顺序。引用 `vps-deployment.md` 时只补充基础环境、DNS、凭证和验收配置；不要同时执行那里的手动启动服务步骤，也不要提前创建 `/srv/pixloom/app` 普通目录。以下服务器命令在 VPS 上执行。
+
 旧工作流的目录为 `/var/www/pixloom`，通过 PM2 集群运行一个 Next 服务；新工作流使用单机 SQLite、一个 Worker、一个 Web、一个 Gateway 和 systemd。不能直接套用旧的 PM2 reload。
 
 1. 备份旧目录中的配置、数据库和上传文件，保留旧代码及 PM2 配置。新版不自动导入已经移除的旧 HTML 项目数据。不要把旧目录的数据与新版空库混合复制。
 2. 按 [VPS 部署](vps-deployment.md) 安装 Node.js 24、pnpm、Docker Engine、Caddy、Python 3、curl 和 flock（util-linux），创建 pixloom 用户和配置密钥。自动部署仅支持本机 Docker Engine 默认 context，固定 Web 3000、Gateway 4180、数据 `/srv/pixloom/data`、发布 `/srv/pixloom/published`；HTTPS 使用标准 443。
-3. 把这版代码放在可供 pixloom 用户读取的独立准备目录，例如 `/srv/pixloom/bootstrap`。可以在旧 Git checkout 旁创建独立 worktree，保持线上 main checkout 不变；也可以上传源码包。以 pixloom 用户安装依赖，使用有权限的运维用户安装 Chromium 系统依赖 `pnpm exec playwright install-deps chromium`。浏览器文件由每次部署以 pixloom 用户下载。
+3. 把包含本套部署脚本的代码放在 pixloom 用户可读写的独立准备目录，例如 `/srv/pixloom/bootstrap`。首次合并前应使用 `codex/atoms-platform` 分支或对应提交，尚未更新的 main 不包含这些脚本。准备目录及其依赖安装位置需归 pixloom 所有，父目录也需允许该用户访问。可以在旧 Git checkout 旁创建独立 worktree，保持线上 main checkout 不变；也可以上传源码包。以 pixloom 用户安装依赖，使用有权限的运维用户安装 Chromium 系统依赖 `pnpm exec playwright install-deps chromium`。浏览器文件由每次部署以 pixloom 用户下载。
 4. 在该准备目录安装控制器、服务配置和根目录：
 
 ```sh
@@ -67,7 +69,7 @@ sudo install -m 644 /dev/null /var/lib/pixloom/maintenance
 ```
 
 8. 若 VPS_USER 非 root，只为可信部署用户配置无密码执行 `/usr/local/sbin/pixloom-deploy` 的 sudo 权限，并把 incoming 目录交给该用户。该权限允许发布可执行代码，应按服务器管理员权限保护。root SSH 用户不使用 sudo。
-9. 完成准备后才合并 main，或在 main 手动运行 Deploy Pixloom。首次成功后，三个服务和备份/监测 timer 自动开机启用。当前分支不会触发部署。
+9. 首次准备完成并确认维护窗口后，再经人工确认把包含新工作流的分支合入 main；合并会自动启动新 Deploy Pixloom。**新工作流进入 main 之前，不要手动运行 main 上的同名工作流，它仍是旧 PM2 部署。** 只有新工作流已经在 main 上时，后续才能通过手动运行重试。首次成功后，三个服务和备份/监测 timer 自动开机启用。当前功能分支的普通 push 不会触发部署。
 
 如果已经按旧版指南把新版应用作为普通目录放在 `/srv/pixloom/app`，先在维护窗口停止三个服务，将整个目录移到 `/srv/pixloom/releases/bootstrap-日期`，再建立 app 符号链接。确认没有运行任务且旧版可正常启动后再运行自动部署。控制器会拒绝直接覆盖普通 checkout。
 
