@@ -50,7 +50,7 @@ export async function enableCloud(task: Task, execution: CloudExecution) {
     client: CLOUD_CLIENT_PATH,
     schema: 'src/pixloom-schema.json',
     instruction: sharedApp(task.projectId)
-      ? '共享池后端：使用 cloud 客户端。支持登录、用户隔离的数据库和私有文件，不支持自定义服务端函数。注册后需要邮件确认，再返回原应用登录。可信预览入口和发布站点默认保持登录 7 天，刷新和重开可恢复，主动退出立即撤销。不要自行存储令牌或放开沙箱。'
+      ? '共享池后端：使用 cloud 客户端。支持登录、用户隔离的数据库和私有文件，不支持自定义服务端函数。声明 buckets 后平台会在首次上传时自动准备私有桶；上传成功才可保存返回路径和提示文件保存成功。失败需保留输入及同一路径供重试，禁止编造路径或静默用数据库文本冒充文件。注册后需要邮件确认，再返回原应用登录。可信预览入口和发布站点默认保持登录 7 天，刷新和重开可恢复，主动退出立即撤销。不要自行存储令牌或放开沙箱。'
       : '使用 cloud 客户端；每张表自带 id/owner_id/created_at，用户数据以 RLS 隔离。注册默认需要邮件确认。',
   }
 }

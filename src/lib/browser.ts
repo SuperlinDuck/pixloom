@@ -15,6 +15,7 @@ import {
 import type { BuildAsset } from './types'
 import { installPreviewAuthBridge } from './cloud/preview-bridge'
 import { browserAuth } from './cloud/browser-auth'
+import { storageFailureSummary } from './cloud/shared-storage'
 
 export type CloudTransport = (request: {
   url: string
@@ -29,6 +30,7 @@ export type BrowserVerifier = (
   steps: BrowserStep[],
   signal: AbortSignal,
   cloudTransport?: CloudTransport,
+  options?: { onLoaded?: () => void; timeoutMs?: number },
 ) => Promise<BrowserReport>
 
 async function perform(
@@ -100,7 +102,9 @@ export const verifyBrowser: BrowserVerifier = async (
   steps,
   signal,
   cloudTransport,
+  options,
 ) => {
+  const startedAt = Date.now()
   if (steps.length) browserTestSchema.parse({ steps })
   if (!/^[a-zA-Z0-9-]+$/.test(artifactId)) throw new Error('预览标识无效')
   const validated = validateAssets(assets)
@@ -109,7 +113,10 @@ export const verifyBrowser: BrowserVerifier = async (
   // Login can include an upstream auth request and subsequent user/data reads.
   // Give those requests time to finish before failing an assertion and closing the browser.
   const stepTimeout = cloud ? 30000 : 2000
-  const verificationTimeout = cloud ? 60000 : 25000
+  const verificationTimeout = Math.min(
+    cloud ? 60000 : 25000,
+    options?.timeoutMs ?? Infinity,
+  )
   signal.throwIfAborted()
   const origin = 'http://127.0.0.1:4173'
   const prefix = `/api/previews/${artifactId}/`
@@ -124,7 +131,7 @@ export const verifyBrowser: BrowserVerifier = async (
           ? 'chrome'
           : undefined,
       chromiumSandbox: true,
-      timeout: 10000,
+      timeout: Math.max(1, Math.min(10000, verificationTimeout)),
       // Never pass model credentials to the browser process.
       env: Object.fromEntries(
         ['PATH', 'HOME', 'TMPDIR', 'SystemRoot'].flatMap((key) =>
@@ -147,10 +154,22 @@ export const verifyBrowser: BrowserVerifier = async (
   const record = (message: string) => {
     if (errors.length < 12) errors.push(message.slice(0, 1200))
   }
-  const deadline = setTimeout(() => {
-    record(`浏览器验证超过 ${verificationTimeout / 1000} 秒时限`)
-    abort()
-  }, verificationTimeout)
+  const recordCloudFailure = (status: number, body: Buffer) => {
+    let detail = ''
+    if (cloud?.format === 'pixloom-cloud-v2' && body.length <= 64000) {
+      try {
+        detail = storageFailureSummary(JSON.parse(body.toString()))
+      } catch {}
+    }
+    record(`绑定的 Cloud 请求失败：HTTP ${status}${detail}`)
+  }
+  const deadline = setTimeout(
+    () => {
+      record(`浏览器验证超过 ${verificationTimeout / 1000} 秒时限`)
+      abort()
+    },
+    Math.max(1, verificationTimeout - (Date.now() - startedAt)),
+  )
   signal.addEventListener('abort', abort, { once: true })
   try {
     signal.throwIfAborted()
@@ -223,7 +242,7 @@ export const verifyBrowser: BrowserVerifier = async (
             )
               throw new Error('后端响应无效')
             if (response.status >= 400)
-              record(`绑定的 Cloud 请求失败：HTTP ${response.status}`)
+              recordCloudFailure(response.status, response.body)
             return await route.fulfill(response)
           }
           const response = await route.fetch({
@@ -235,7 +254,7 @@ export const verifyBrowser: BrowserVerifier = async (
           const body = await response.body()
           if (body.length > 2 * 1024 * 1024) throw new Error('响应过大')
           if (response.status() >= 400)
-            record(`绑定的 Cloud 请求失败：HTTP ${response.status()}`)
+            recordCloudFailure(response.status(), body)
           return await route.fulfill({ response, body })
         } catch (error) {
           if (!closing) {
@@ -319,6 +338,10 @@ export const verifyBrowser: BrowserVerifier = async (
       (await frame.locator('#root > *').count()) === 0
     )
       record('React 根节点为空')
+    // Publish the loaded candidate before behavior steps, using the same browser.
+    await page.waitForTimeout(150)
+    signal.throwIfAborted()
+    if (!errors.length && !closing) options?.onLoaded?.()
     for (const step of steps) {
       signal.throwIfAborted()
       await perform(frame, step, stepTimeout)

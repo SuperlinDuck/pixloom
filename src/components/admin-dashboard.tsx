@@ -201,11 +201,8 @@ export function AdminDashboard() {
               </small>
             </div>
             <div>
-              <span>今日额度占用</span>
-              <strong>
-                {points(overview.data.daily.used)}{' '}
-                <i>/ {points(overview.data.daily.limit)}</i>
-              </strong>
+              <span>今日使用积分</span>
+              <strong>{points(overview.data.daily.used)}</strong>
               <small>含预留 · UTC {overview.data.daily.day}</small>
             </div>
           </section>

@@ -54,22 +54,6 @@ export function takeRate(key: string, maximum: number, windowMs = 60000) {
     )
     .run(key, window)
 }
-export function assertProjectCapacity(ownerId?: string) {
-  if (!ownerId) return
-  assertActive(userById(ownerId))
-  const total = (
-    db().prepare('SELECT count(*) AS n FROM projects').get() as { n: number }
-  ).n
-  if (total >= limit('PIXLOOM_MAX_PROJECTS', 300))
-    throw new StoreError('平台项目数量已达上限', 429)
-  const count = (
-    db()
-      .prepare('SELECT count(*) AS n FROM projects WHERE ownerId=?')
-      .get(ownerId) as { n: number }
-  ).n
-  if (count >= limit('PIXLOOM_MAX_PROJECTS_PER_USER', 10))
-    throw new StoreError('项目数量已达上限，请联系管理员', 429)
-}
 export function assertTaskCapacity(projectId: string, kind: TaskKind) {
   if (['stop', 'remove', 'unpublish'].includes(kind)) return
   const ownerId = ownerOf(projectId)
@@ -165,7 +149,7 @@ export function dailyUsage() {
       )
       .get(day) as { n: number }
   ).n
-  return { day, used, limit: limit('PIXLOOM_DAILY_CREDITS', 20_000_000) }
+  return { day, used }
 }
 export function assertAiAvailable(userId?: string) {
   if (
@@ -182,9 +166,6 @@ export function assertAiAvailable(userId?: string) {
     if (!usageSummary(userId).remainingCredits)
       throw new StoreError('体验额度已用尽，已有项目仍可查看和导出', 429)
   }
-  const daily = dailyUsage()
-  if (daily.used >= daily.limit)
-    throw new StoreError('平台今日 AI 额度已用尽，请稍后重试', 429)
 }
 export function createInvitation(
   options: {

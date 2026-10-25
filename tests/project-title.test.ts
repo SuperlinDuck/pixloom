@@ -72,6 +72,8 @@ function setup(
 beforeAll(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'pixloom-title-'))
   vi.stubEnv('PIXLOOM_DATA_DIR', directory)
+  vi.stubEnv('GEMINI_CONTEXT_WINDOW_TOKENS', '128000')
+  vi.stubEnv('OPENAI_CONTEXT_WINDOW_TOKENS', '128000')
 })
 beforeEach(() => db().exec('DELETE FROM projects;'))
 afterEach(() => {

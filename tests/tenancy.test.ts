@@ -22,9 +22,13 @@ import {
   createProject,
   db,
   enqueueTask,
+  finishTask,
   getRuntime,
   getTask,
+  retryAgentTask,
   setRuntime,
+  stageCandidatePreview,
+  cancelTask,
 } from '../src/lib/store'
 import {
   createInvitation,
@@ -37,7 +41,7 @@ import {
   settleModelCall,
   withModelBilling,
 } from '../src/lib/ai/billing'
-import { openaiProvider } from '../src/lib/ai/provider'
+import { geminiProvider, openaiProvider } from '../src/lib/ai/provider'
 import { templateFiles } from '../src/lib/runtime/template'
 import { previewGrant } from '../src/lib/preview-access'
 import { reapEnvironments } from '../src/lib/runtime/lifecycle'
@@ -56,6 +60,7 @@ import {
 } from '../src/app/api/projects/[id]/files/route'
 import { GET as taskGET } from '../src/app/api/tasks/[id]/route'
 import { POST as cancelPOST } from '../src/app/api/tasks/[id]/cancel/route'
+import { POST as retryPOST } from '../src/app/api/tasks/[id]/retry/route'
 import {
   GET as releasesGET,
   POST as releasesPOST,
@@ -149,6 +154,7 @@ beforeEach(async () => {
   vi.stubEnv('PIXLOOM_CLOUD_ENCRYPTION_KEY', 'a'.repeat(64))
   vi.stubEnv('PIXLOOM_AI_ENABLED', '1')
   vi.stubEnv('PIXLOOM_MODEL_WEIGHTS', '{}')
+  vi.stubEnv('OPENAI_CONTEXT_WINDOW_TOKENS', '128000')
 })
 afterEach(async () => {
   db().close()
@@ -267,10 +273,11 @@ describe('invitation and ownership boundary', () => {
     expect(
       (await taskGET(request(bob.session), { params: { id: task.id } })).status,
     ).toBe(404)
-    expect(
-      (await cancelPOST(request(bob.session, {}), { params: { id: task.id } }))
-        .status,
-    ).toBe(404)
+    for (const handler of [cancelPOST, retryPOST])
+      expect(
+        (await handler(request(bob.session, {}), { params: { id: task.id } }))
+          .status,
+      ).toBe(404)
     expect(getTask(task.id).status).toBe('queued')
     expect((await filesGET(request(alice.session), context)).status).toBe(200)
     expect(() => startSupabaseOAuth(request(bob.session), project.id)).toThrow(
@@ -356,12 +363,26 @@ describe('invitation and ownership boundary', () => {
         .get('legacy-sub'),
     ).toMatchObject({ n: 1 })
   })
-  it('enforces access expiry, project/task limits and preserves reads after AI quota exhaustion', async () => {
+  it('creates projects beyond former account and platform caps, including with legacy settings', async () => {
     const alice = activated('alice')
+    const files = await templateFiles()
+    for (let i = 0; i < 301; i++) createProject(`Project ${i}`, files, alice.id)
+    vi.stubEnv('PIXLOOM_MAX_PROJECTS', '1')
     vi.stubEnv('PIXLOOM_MAX_PROJECTS_PER_USER', '1')
+    expect(
+      (await projectsPOST(request(alice.session, { name: 'Another project' })))
+        .status,
+    ).toBe(201)
+    expect(
+      db()
+        .prepare('SELECT count(*) AS n FROM projects WHERE ownerId=?')
+        .get(alice.id),
+    ).toMatchObject({ n: 302 })
+  })
+  it('enforces access expiry and preserves reads after AI quota exhaustion', async () => {
+    const alice = activated('alice')
     const project = createProject('one', await templateFiles(), alice.id)
     const files = await templateFiles()
-    expect(() => createProject('two', files, alice.id)).toThrow('数量')
     db().prepare('UPDATE users SET creditLimit=0 WHERE id=?').run(alice.id)
     expect(() =>
       enqueueTask(project.id, 'agent', 0, null, undefined, undefined, agent()),
@@ -372,6 +393,13 @@ describe('invitation and ownership boundary', () => {
     ).toBe(200)
     db().prepare('UPDATE users SET accessExpiresAt=0 WHERE id=?').run(alice.id)
     expect(() => requireWorkspaceUser(request(alice.session))).toThrow('到期')
+    expect(() => createProject('expired', files, alice.id)).toThrow('到期')
+    db()
+      .prepare(
+        "UPDATE users SET accessExpiresAt=NULL,status='disabled' WHERE id=?",
+      )
+      .run(alice.id)
+    expect(() => createProject('disabled', files, alice.id)).toThrow('停用')
   })
 })
 
@@ -428,12 +456,49 @@ describe('metering at the upstream request boundary', () => {
     ).rejects.toThrow('中断')
     expect(usageSummary(user.id).reservedCredits).toBe(96003)
     db().prepare('UPDATE users SET creditLimit=2000000 WHERE id=?').run(user.id)
-    vi.stubEnv('PIXLOOM_DAILY_CREDITS', '96004')
-    await expect(
-      withModelBilling(restarted, async () => reserveModelCall('abc', 1)),
-    ).rejects.toThrow('平台今日')
+    await withModelBilling(restarted, async () => reserveModelCall('abc', 1))
+    expect(usageSummary(user.id).reservedCredits).toBe(96010)
   })
-  it('counts per-task output reservations, supports model weights, and honors the emergency switch', async () => {
+  it('allows users with balance to run after platform daily usage exceeds the former cap', async () => {
+    const alice = await agentTask('alice')
+    await withModelBilling(alice.task, async () => reserveModelCall('abc', 1))
+    db()
+      .prepare(
+        "UPDATE usage_ledger SET credits=20000000,status='settled' WHERE userId=?",
+      )
+      .run(alice.user.id)
+    const bob = await agentTask('bob')
+    await withModelBilling(bob.task, async () => reserveModelCall('abc', 1))
+    expect(usageSummary(bob.user.id)).toMatchObject({
+      reservedCredits: 7,
+      remainingCredits: 1_999_993,
+    })
+    await expect(
+      withModelBilling(alice.task, async () => reserveModelCall('abc', 1)),
+    ).rejects.toThrow('额度已用尽')
+  })
+  it('keeps unknown billing reservations when retrying the same reply and rejects stale billing attempts', async () => {
+    const { user, task } = await agentTask()
+    await withModelBilling(task, async () => reserveModelCall('abc', 100))
+    finishTask(task, '模型调用结果未知')
+    const balance = usageSummary(user.id)
+    retryAgentTask(task.id, 0, null, task.agent!)
+    expect(usageSummary(user.id)).toEqual(balance)
+    const retried = claimTask()!
+    await expect(
+      withModelBilling(task, async () => reserveModelCall('abc', 1)),
+    ).rejects.toThrow('中断')
+    await withModelBilling(retried, async () => reserveModelCall('abc', 1))
+    expect(usageSummary(user.id).reservedCredits).toBe(410)
+  })
+  it('has no cumulative task-input cap while retaining account reservations', async () => {
+    const { user, task } = await agentTask()
+    vi.stubEnv('PIXLOOM_TASK_INPUT_TOKENS', '3')
+    await withModelBilling(task, async () => reserveModelCall('abcd', 1))
+    await withModelBilling(task, async () => reserveModelCall('efgh', 1))
+    expect(usageSummary(user.id).reservedCredits).toBe(16)
+  })
+  it('reserves each request independently, supports model weights, and honors the emergency switch', async () => {
     const { task, user } = await agentTask()
     vi.stubEnv(
       'PIXLOOM_MODEL_WEIGHTS',
@@ -444,11 +509,10 @@ describe('metering at the upstream request boundary', () => {
     )
     expect(usageSummary(user.id).reservedCredits).toBe(240008)
     await withModelBilling(task, async () => reserveModelCall('abcd', 24000))
-    await expect(
-      withModelBilling(task, async () => reserveModelCall('a', 1)),
-    ).rejects.toThrow('输出预算')
+    await withModelBilling(task, async () => reserveModelCall('a', 24000))
+    expect(usageSummary(user.id).reservedCredits).toBe(720018)
     releaseModelCall(reservation)
-    expect(usageSummary(user.id).reservedCredits).toBe(240008)
+    expect(usageSummary(user.id).reservedCredits).toBe(480010)
     db()
       .prepare("INSERT INTO platform_settings VALUES ('ai_enabled','0')")
       .run()
@@ -456,6 +520,85 @@ describe('metering at the upstream request boundary', () => {
       withModelBilling(task, async () => reserveModelCall('a', 1)),
     ).rejects.toThrow('暂停')
   })
+  it.each(['gemini', 'openai'] as const)(
+    'keeps %s request output limits independent of title usage and unknown earlier attempts',
+    async (name) => {
+      const { task, user } = await agentTask()
+      // Reproduce the reported task: 6,341 main-output tokens, a 5-token
+      // title and an unconfirmed 24,000-token request reservation.
+      for (const [maxOutput, actualOutput] of [
+        [24000, 6341],
+        [512, 5],
+      ]) {
+        const reservation = await withModelBilling(task, async () =>
+          reserveModelCall('earlier', maxOutput),
+        )
+        settleModelCall(reservation, {
+          inputTokens: 10,
+          outputTokens: actualOutput,
+        })
+      }
+      await withModelBilling(task, async () =>
+        reserveModelCall('unknown', 24000),
+      )
+      vi.stubEnv('GEMINI_API_KEY', 'fake')
+      vi.stubEnv('GEMINI_CONTEXT_WINDOW_TOKENS', '128000')
+      vi.stubEnv('OPENAI_API_KEY', 'fake')
+      vi.useFakeTimers()
+      const data =
+        name === 'gemini'
+          ? {
+              candidates: [
+                {
+                  finishReason: 'STOP',
+                  content: { role: 'model', parts: [{ text: '完成' }] },
+                },
+              ],
+              usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 },
+            }
+          : {
+              status: 'completed',
+              output: [],
+              usage: { input_tokens: 10, output_tokens: 20 },
+            }
+      const fetcher = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('connection lost'))
+        .mockResolvedValueOnce(new Response(JSON.stringify(data)))
+      vi.stubGlobal('fetch', fetcher)
+      const provider = name === 'gemini' ? geminiProvider : openaiProvider
+      const session = provider.createSession({
+        model: 'test-model',
+        prompt: '继续开发',
+        signal: new AbortController().signal,
+      })
+      try {
+        const pending = withModelBilling(task, () => session.next([], 24000))
+        await vi.advanceTimersByTimeAsync(1000)
+        await pending
+        expect(fetcher).toHaveBeenCalledTimes(2)
+        const bodies = fetcher.mock.calls.map(([, request]) =>
+          JSON.parse(request.body),
+        )
+        expect(bodies[0]).toEqual(bodies[1])
+        expect(
+          name === 'gemini'
+            ? bodies[1].generationConfig.maxOutputTokens
+            : bodies[1].max_output_tokens,
+        ).toBe(24000)
+        expect(usageSummary(user.id).outputTokens).toBe(6366)
+        expect(
+          db()
+            .prepare(
+              "SELECT sum(outputReserved) AS output FROM usage_ledger WHERE taskId=? AND status='reserved'",
+            )
+            .get(task.id),
+        ).toMatchObject({ output: 48000 })
+      } finally {
+        vi.useRealTimers()
+      }
+    },
+  )
   it('charges repeated network attempts conservatively and releases explicit rejected requests', async () => {
     const { task, user } = await agentTask()
     vi.stubEnv('OPENAI_API_KEY', 'test')
@@ -493,6 +636,37 @@ describe('metering at the upstream request boundary', () => {
 })
 
 describe('private preview capabilities and runtime recycling', () => {
+  it('keeps a running candidate private and revokes its capability on cancellation', async () => {
+    const { user: alice, project, task } = await agentTask()
+    const bob = activated('bob')
+    const artifactId = randomUUID()
+    stageCandidatePreview(task, 'template', artifactId, [
+      {
+        path: 'index.html',
+        contentType: 'text/html',
+        body: Buffer.from('<h1>candidate</h1>').toString('base64'),
+      },
+    ])
+    expect(
+      (await assetGET(request(bob.session), { params: { artifactId } })).status,
+    ).toBe(404)
+    expect(
+      (
+        await grantPOST(request(bob.session, { artifactId }), {
+          params: { id: project.id },
+        })
+      ).status,
+    ).toBe(404)
+    const grant = previewGrant(request(alice.session), artifactId)
+    const params = { artifactId, path: ['_grant', grant.token, 'index.html'] }
+    expect((await assetGET(request(), { params })).status).toBe(200)
+    cancelTask(task.id)
+    expect((await assetGET(request(), { params })).status).toBe(403)
+    expect(
+      (await assetGET(request(alice.session), { params: { artifactId } }))
+        .status,
+    ).toBe(404)
+  })
   it('requires ownership for preview and app auth, rewrites module paths and immediately revokes grants on logout', async () => {
     const alice = activated('alice'),
       bob = activated('bob')

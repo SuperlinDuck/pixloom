@@ -17,7 +17,7 @@ export type AdminOverview = AdminUsage & {
   pendingUsers: number
   projects: number
   turns: number
-  daily: { day: string; used: number; limit: number }
+  daily: { day: string; used: number }
 }
 export type AdminUser = AdminUsage & {
   id: string

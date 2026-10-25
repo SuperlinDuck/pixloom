@@ -2521,6 +2521,8 @@ h1 {
 }
 .landing-composer textarea {
   min-height: 92px;
+  max-height: min(320px, 40dvh);
+  overflow-y: auto;
 }
 .composer textarea::placeholder {
   color: #85858e;
@@ -3447,7 +3449,7 @@ h1 {
 .publication-domain-input {
   display: flex;
   align-items: center;
-  flex: 1 1 240px;
+  flex: 0 1 360px;
   min-width: 0;
   border: 1px solid #d4d4d8;
   border-radius: 8px;

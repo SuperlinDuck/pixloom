@@ -1,4 +1,5 @@
 import type { ModelOption, Provider } from '../types'
+import { contextInputBudget } from './compaction'
 export function modelOptions(): ModelOption[] {
   return [
     {
@@ -49,5 +50,6 @@ export function requireModel(provider: Provider) {
         'OPENAI_BASE_URL 必须为不含凭证、查询参数和片段的 HTTP(S) API 地址',
       )
   }
+  contextInputBudget(provider, config.model, 0)
   return config
 }

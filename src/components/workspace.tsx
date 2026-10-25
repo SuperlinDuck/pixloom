@@ -1,6 +1,13 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   Box,
   Cloud,
@@ -95,7 +102,7 @@ const time = (value: string) =>
     minute: '2-digit',
   })
 const labels = {
-  queued: '等待执行',
+  queued: '排队中',
   running: '正在执行',
   completed: '已完成',
   failed: '失败',
@@ -222,6 +229,7 @@ function WorkspaceSession({
     [notice, setNotice] = useState(''),
     [summary, setSummary] = useState('')
   const [prompt, setPrompt] = useState('')
+  const landingPromptRef = useRef<HTMLTextAreaElement>(null)
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [projectName, setProjectName] = useState('')
@@ -243,6 +251,11 @@ function WorkspaceSession({
   const active = detail?.tasks.find(isActive)
   const viewingHistory = !!selected
   const shown = viewingHistory ? historical : current
+  const candidatePreview = viewingHistory ? undefined : active?.candidatePreview
+  const previewArtifactId = candidatePreview?.artifactId || shown?.artifactId
+  const previewUsesCloud = candidatePreview
+    ? candidatePreview.usesCloud
+    : shown?.files.some((file) => file.path === 'src/pixloom-cloud.js')
   const shownFiles = viewingHistory ? historical?.files || [] : files
   const content = shownFiles.find((f) => f.path === file)?.content || ''
   const base = projectId ? `/api/projects/${projectId}` : ''
@@ -255,11 +268,35 @@ function WorkspaceSession({
   const locked = busy || !!active || viewingHistory || conflict
   const ready = canAccess && !!status?.workerOnline
   const aiReady = ready && (account.session.usage?.remainingCredits ?? 1) > 0
-  const latestTask = detail?.tasks[0]
+  const latestTask = active || detail?.tasks[0]
   const domainPrefix = prefixEdit ?? publication?.prefix ?? ''
   const normalizedPrefix = normalizePublicationPrefix(domainPrefix)
   const prefixError = publicationPrefixError(normalizedPrefix)
   const prefixChanged = normalizedPrefix !== publication?.prefix
+
+  const resizeLandingPrompt = useCallback(() => {
+    const textarea = landingPromptRef.current
+    if (!textarea) return
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [])
+
+  useLayoutEffect(() => {
+    resizeLandingPrompt()
+  }, [prompt, projectId, resizeLandingPrompt])
+
+  useEffect(() => {
+    const textarea = landingPromptRef.current
+    if (!textarea) return
+    let width = textarea.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (textarea.clientWidth === width) return
+      width = textarea.clientWidth
+      resizeLandingPrompt()
+    })
+    observer.observe(textarea)
+    return () => observer.disconnect()
+  }, [projectId, resizeLandingPrompt])
 
   useEffect(() => {
     setPrefixEdit(null)
@@ -634,7 +671,7 @@ function WorkspaceSession({
       !modelConfigured
     )
       return
-    followConversation.current = true
+    if (!retryTask) followConversation.current = true
     await perform(async () => {
       if (!projectId) {
         const project = await api<Project>('/api/projects', {
@@ -647,12 +684,15 @@ function WorkspaceSession({
         return
       }
       const value = await saveDraft()
-      await api(`${base}/tasks`, {
-        prompt: requestPrompt,
-        provider,
-        expectedRevision: value.revision,
-        expectedVersionId: detail?.project.currentVersionId || null,
-      })
+      await api(
+        retryTask ? `/api/tasks/${retryTask.id}/retry` : `${base}/tasks`,
+        {
+          ...(!retryTask && { prompt: requestPrompt }),
+          provider,
+          expectedRevision: value.revision,
+          expectedVersionId: detail?.project.currentVersionId || null,
+        },
+      )
       if (!retryTask) setPrompt('')
       await refresh()
       setTab('preview')
@@ -1025,6 +1065,7 @@ function WorkspaceSession({
                 }}
               >
                 <textarea
+                  ref={landingPromptRef}
                   autoFocus
                   aria-label="应用需求"
                   placeholder="例如：做一个待办应用，支持分类、完成标记和筛选…"
@@ -1134,7 +1175,7 @@ function WorkspaceSession({
                                       !draft ||
                                       !modelConfigured
                                     }
-                                    title="使用原需求通过 Gemini 重新生成"
+                                    title="在此回复中使用原需求重新生成"
                                     onClick={() => void generate(task)}
                                   >
                                     <RefreshCw size={13} aria-hidden="true" />
@@ -1345,9 +1386,23 @@ function WorkspaceSession({
                 <>
                   <div className="preview-location">
                     <div className="preview-location-label">
-                      <span>{shown ? '应用预览' : '等待首次构建'}</span>
-                      {shown && (
-                        <span className="preview-version">v{shown.number}</span>
+                      <span>
+                        {candidatePreview
+                          ? '候选预览'
+                          : shown
+                            ? '应用预览'
+                            : '等待首次构建'}
+                      </span>
+                      {candidatePreview ? (
+                        <span className="preview-version" role="status">
+                          正在检查功能
+                        </span>
+                      ) : (
+                        shown && (
+                          <span className="preview-version">
+                            v{shown.number}
+                          </span>
+                        )
                       )}
                     </div>
                     <div className="preview-location-actions">
@@ -1380,7 +1435,7 @@ function WorkspaceSession({
                         className="icon-button"
                         aria-label="刷新预览"
                         title="刷新预览"
-                        disabled={!shown}
+                        disabled={!previewArtifactId}
                         onClick={() => setPreviewKey((k) => k + 1)}
                       >
                         <RefreshCw size={14} />
@@ -1389,11 +1444,11 @@ function WorkspaceSession({
                         className="icon-button"
                         aria-label="在新标签页打开预览"
                         title="在新标签页打开预览"
-                        disabled={!shown}
+                        disabled={!previewArtifactId}
                         onClick={() => {
-                          if (shown)
+                          if (previewArtifactId)
                             window.open(
-                              `/preview/${shown.artifactId}`,
+                              `/preview/${previewArtifactId}`,
                               '_blank',
                               'noopener,noreferrer',
                             )
@@ -1404,13 +1459,17 @@ function WorkspaceSession({
                     </div>
                   </div>
                   <div className="preview-canvas">
-                    {shown ? (
+                    {previewArtifactId ? (
                       <TrustedPreview
-                        key={`${shown.artifactId}-${previewKey}`}
-                        title={`应用预览 v${shown.number}`}
+                        key={`${previewArtifactId}-${previewKey}`}
+                        title={
+                          candidatePreview
+                            ? '候选应用预览'
+                            : `应用预览 v${shown?.number}`
+                        }
                         className={mobile ? 'phone-frame' : ''}
                         projectId={projectId}
-                        artifactId={shown.artifactId}
+                        artifactId={previewArtifactId}
                       />
                     ) : (
                       <div className="preview-empty">
@@ -1420,7 +1479,7 @@ function WorkspaceSession({
                         </h2>
                         <p>
                           {active
-                            ? '你可以在对话中查看进度，完成后会在这里显示应用。'
+                            ? '首次构建并通过加载检查后，应用会显示在这里。你可以在对话中查看进度。'
                             : '在左侧描述你的想法，或打开源码开始编辑。'}
                         </p>
                       </div>
@@ -1428,18 +1487,16 @@ function WorkspaceSession({
                   </div>
                   <div className="preview-status">
                     <span>
-                      {shown?.files.some(
-                        (file) => file.path === 'src/pixloom-cloud.js',
-                      )
+                      {previewUsesCloud
                         ? '隔离预览 · 仅连接绑定的开发后端'
                         : '隔离预览 · 无外部网络'}
                     </span>
                     <span>
-                      {shown?.files.some(
-                        (file) => file.path === 'src/pixloom-cloud.js',
-                      )
-                        ? '源码预览固定 · 开发数据由各版本共享'
-                        : '草稿修改不影响当前预览'}
+                      {candidatePreview
+                        ? '候选预览已就绪 · 完成后保存版本'
+                        : previewUsesCloud
+                          ? '源码预览固定 · 开发数据由各版本共享'
+                          : '草稿修改不影响当前预览'}
                     </span>
                   </div>
                 </>

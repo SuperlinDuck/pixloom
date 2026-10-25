@@ -302,6 +302,7 @@ describe('usage and conversation inspection', () => {
       outputTokens: 50,
       daily: { used: 800 },
     })
+    expect(overview.daily).not.toHaveProperty('limit')
     const users = (await (
       await usersGET(request(admin.session))
     ).json()) as AdminPage<AdminUser>

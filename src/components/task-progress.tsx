@@ -18,6 +18,12 @@ import type { TaskEvent, TaskSummary } from '@/lib/types'
 import { isActive } from '@/lib/types'
 import { MarkdownReply } from './markdown-reply'
 
+// Hide internal setup messages that were recorded by older tasks.
+const internalSetupMessages = new Set([
+  '操作已排队，等待 Worker',
+  '完整装载候选文件，当前可用版本和预览保持可访问',
+])
+
 const toolLabels = {
   list_files: { label: '列出文件', icon: Folder },
   read_file: { label: '读取文件', icon: FileText },
@@ -102,6 +108,7 @@ export function TaskProgress({
       event.type !== 'reply' &&
       event !== finalModel &&
       event.message.trim() &&
+      !(!event.type && internalSetupMessages.has(event.message.trim())) &&
       !/^模型第\s*\d+\s*\/\s*\d+\s*步(?:\s|·|$)/.test(event.message.trim()),
   )
   const latest = events[events.length - 1]
@@ -163,7 +170,18 @@ export function TaskProgress({
           )}
         </div>
       </details>
-      {active && latest && (
+      {task.status === 'queued' && (
+        <div className="task-latest-progress" role="status">
+          <p className="task-latest-note">
+            {task.queue?.waitingForUser
+              ? '等待你的上一项任务结束后执行。'
+              : task.queue && task.queue.ahead > 0
+                ? `当前有 ${task.queue.ahead} 位用户排在前面，系统会按用户轮流调度。`
+                : '已进入队列，等待空闲执行名额。'}
+          </p>
+        </div>
+      )}
+      {task.status === 'running' && latest && (
         <div className="task-latest-progress" role="status">
           {latest.type === 'model' ? (
             <p className="task-latest-note" title={latest.message}>

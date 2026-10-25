@@ -1,5 +1,9 @@
-import { reapEnvironments } from './runtime/lifecycle'
-import { limit } from './platform-config'
+import {
+  prepareEnvironment,
+  protectEnvironment,
+  withRuntimeLifecycle,
+} from './runtime/lifecycle'
+import { buildSlots, browserSlots } from './worker-resources'
 import { ownerOf, assertActive, userById } from './tenancy'
 import { CloudDefinitionError } from './cloud/errors'
 import { cleanupTestAccount } from './cloud/test-account'
@@ -20,6 +24,7 @@ import {
   getVersion,
   ownsWorker,
   setRuntimeForTask,
+  stageCandidatePreview,
 } from './store'
 import { snapshot } from './workspace-files'
 import { DockerRuntime } from './runtime/docker'
@@ -37,6 +42,7 @@ export async function runTask(
   browserVerifier: BrowserVerifier = verifyBrowser,
   publicationRuntime?: PublicationRuntime,
 ) {
+  const unprotect = protectEnvironment(task.projectId)
   const controller = new AbortController()
   const abort = () => controller.abort()
   shutdown?.addEventListener('abort', abort, { once: true })
@@ -54,6 +60,43 @@ export async function runTask(
     if (!attemptActive(task, owner)) abort()
   }, 300)
   const active = () => !controller.signal.aborted && attemptActive(task, owner)
+  const check = () => {
+    if (!active()) throw new Error('操作已中断')
+  }
+  const verify: BrowserVerifier = (...args) => {
+    const timeoutMs = args[5]?.timeoutMs
+    const signal =
+      timeoutMs === undefined
+        ? controller.signal
+        : AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)])
+    args[3] = signal
+    if (browserSlots.busy)
+      addEvent(task, '等待页面验证资源', { type: 'validation' })
+    return browserSlots
+      .run(signal, () => {
+        check()
+        return browserVerifier(...args)
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted && signal.aborted)
+          throw new Error(
+            '自动测试已达到剩余时间预算，停止本轮检查；不阻塞版本保存。',
+          )
+        throw error
+      })
+  }
+  const executeBuild = (artifactId: string) => {
+    if (buildSlots.busy) addEvent(task, '等待构建资源', { type: 'build' })
+    return buildSlots.run(controller.signal, () => {
+      check()
+      return runtime.execute(
+        task.projectId,
+        'build',
+        controller.signal,
+        artifactId,
+      )
+    })
+  }
   let touched = false
   let titleGeneration: Promise<void> | undefined
   try {
@@ -66,7 +109,7 @@ export async function runTask(
         signal: controller.signal,
         active,
         owner,
-        verify: browserVerifier,
+        verify,
         runtime: publicationRuntime,
       })
       return
@@ -86,7 +129,7 @@ export async function runTask(
       task.agent.startedAt ??= Date.now()
       checkpointAgent(task, owner)
       if (Date.now() - task.agent.startedAt >= AGENT_LIMITS.durationMs)
-        throw new Error('Coding Agent 超过 5 分钟总时限')
+        throw new Error('Coding Agent 超过 20 分钟总时限')
       titleGeneration = generateProjectTitle(
         task,
         modelProvider || providerFor(task.agent.provider),
@@ -97,7 +140,11 @@ export async function runTask(
     const id = task.projectId
     if (task.kind === 'stop' || task.kind === 'remove') {
       touched = true
-      await runtime[task.kind](id)
+      const kind = task.kind
+      await withRuntimeLifecycle(async () => {
+        check()
+        await runtime[kind](id)
+      }, controller.signal)
       if (!active()) throw new Error('操作已中断')
       setRuntimeForTask(task, task.kind === 'stop' ? 'stopped' : 'absent')
       finishTask(task)
@@ -121,29 +168,16 @@ export async function runTask(
       completeBuild(task, templateId, existing, undefined, owner)
       return
     }
-    addEvent(task, '完整装载候选文件，当前可用版本和预览保持可访问')
-    const state = await runtime.state(id)
     touched = true
-    // Always reconcile a container left by an interrupted operation before loading source.
-    if (state === 'absent') {
-      await reapEnvironments(runtime, owner, true)
-      if (!active()) throw new Error('操作已中断')
-      const count = db()
-        .prepare(
-          "SELECT COUNT(*) AS n FROM runtime_workspaces WHERE state IN ('running','stopped','error') AND projectId!=?",
-        )
-        .get(id) as { n: number }
-      if (count.n >= limit('PIXLOOM_MAX_RUNTIME_CONTAINERS', 3))
-        throw new Error('运行环境已满，请稍后重试')
-      await runtime.create(id, randomUUID(), value.files, controller.signal)
-    } else {
-      if (state === 'running') await runtime.stop(id)
-      await runtime.start(id, value.files, controller.signal)
-    }
-    if (!active()) throw new Error('操作已中断')
-    await runtime.replaceFiles(id, value.files, controller.signal)
-    if (!active()) throw new Error('操作已中断')
-    setRuntimeForTask(task, 'running', value.hash)
+    await prepareEnvironment(
+      runtime,
+      task,
+      value.files,
+      value.hash,
+      controller.signal,
+      check,
+      owner,
+    )
     if (task.kind === 'start') {
       finishTask(task)
       return
@@ -154,13 +188,29 @@ export async function runTask(
         signal: controller.signal,
         active,
         owner,
-        verify: (result, steps) => {
+        ready: (result) => {
+          check()
           if (!result.assets) throw new Error('候选构建产物缺失')
-          return browserVerifier(
+          if (
+            !stageCandidatePreview(
+              task,
+              templateId,
+              result.artifactId,
+              result.assets,
+              owner,
+            )
+          )
+            throw new Error('操作已中断')
+        },
+        verify: (result, steps, onLoaded, timeoutMs) => {
+          if (!result.assets) throw new Error('候选构建产物缺失')
+          return verify(
             result.artifactId,
             result.assets,
             steps,
             controller.signal,
+            undefined,
+            { onLoaded, timeoutMs },
           )
         },
         build: async () => {
@@ -169,12 +219,7 @@ export async function runTask(
           if (!active()) throw new Error('操作已中断')
           setRuntimeForTask(task, 'running', snapshot(task.candidateFiles).hash)
           const artifactId = randomUUID()
-          const result = await runtime.execute(
-            id,
-            'build',
-            controller.signal,
-            artifactId,
-          )
+          const result = await executeBuild(artifactId)
           if (!active()) throw new Error('操作已中断')
           if (result.timedOut) throw new Error('构建超过时限，已终止')
           let assets
@@ -211,12 +256,7 @@ export async function runTask(
     }
     const artifactId = randomUUID()
     addEvent(task, '运行固定 Vite 构建')
-    const result = await runtime.execute(
-      id,
-      'build',
-      controller.signal,
-      artifactId,
-    )
+    const result = await executeBuild(artifactId)
     addEvent(task, result.output || '构建没有输出')
     if (result.exitCode !== 0)
       throw new Error(
@@ -238,19 +278,26 @@ export async function runTask(
     if (!active()) throw new Error('操作已中断')
     completeBuild(task, templateId, artifactId, assets, owner)
   } catch (error) {
-    // A serial Worker awaits cleanup before claiming another operation. A stale owner
-    // must never stop a container that may now belong to the replacement Worker.
-    if (
+    // Keep this project reserved until cleanup finishes; a stale owner must
+    // never stop a container belonging to a replacement Worker or attempt.
+    const canClean = () =>
       touched &&
       (!owner ||
         attemptActive(task, owner) ||
         (getTask(task.id).status === 'cancelled' &&
           !shutdown?.aborted &&
-          (!owner || ownsWorker(owner))))
-    ) {
-      await runtime.stop(task.projectId).catch(() => {})
-      setRuntimeForTask(task, 'stopped')
-    }
+          (!owner || ownsWorker(owner)) &&
+          !db()
+            .prepare(
+              "SELECT 1 FROM tasks WHERE projectId=? AND id!=? AND status='running'",
+            )
+            .get(task.projectId, task.id)))
+    if (canClean())
+      await withRuntimeLifecycle(async () => {
+        if (!canClean()) return
+        await runtime.stop(task.projectId).catch(() => {})
+        setRuntimeForTask(task, 'stopped')
+      })
     if (!shutdown?.aborted && attemptActive(task, owner)) {
       const message = controller.signal.aborted
         ? '操作超时或已中断，保留草稿和上一可用版本'
@@ -264,6 +311,10 @@ export async function runTask(
     clearTimeout(timeout)
     clearInterval(poll)
     shutdown?.removeEventListener('abort', abort)
-    await cleanupTestAccount(task.id)
+    try {
+      await cleanupTestAccount(task.id)
+    } finally {
+      unprotect()
+    }
   }
 }

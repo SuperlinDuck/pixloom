@@ -1,6 +1,11 @@
 import { requireTaskUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
-import { getTask, StoreError } from '@/lib/store'
+import {
+  candidatePreview,
+  getTask,
+  StoreError,
+  taskQueueInformation,
+} from '@/lib/store'
 import { errorResponse } from '@/lib/http'
 export const dynamic = 'force-dynamic'
 export async function GET(
@@ -18,7 +23,13 @@ export async function GET(
         throw new StoreError('仅失败或取消的 AI 任务可以载入候选源码', 409)
       return NextResponse.json({ files: candidateFiles })
     }
-    return NextResponse.json(task)
+    return NextResponse.json({
+      ...task,
+      candidatePreview: candidatePreview(task),
+      ...(task.status === 'queued'
+        ? { queue: taskQueueInformation().get(task.id) }
+        : {}),
+    })
   } catch (e) {
     return errorResponse(e)
   }

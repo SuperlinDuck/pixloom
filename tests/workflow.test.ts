@@ -33,7 +33,9 @@ import {
   previewAsset,
   recoverDraftBackup,
   releaseWorker,
+  retryAgentTask,
   setRuntime,
+  stageCandidatePreview,
   updateDraft,
   validateAssets,
 } from '../src/lib/store'
@@ -565,8 +567,10 @@ describe('operation timeout and storage limits', () => {
 import type { ModelProvider, ModelTurn } from '../src/lib/ai/provider'
 import type { AgentInput, ToolCall } from '../src/lib/ai/tools'
 import { POST as agentPOST } from '../src/app/api/projects/[id]/tasks/route'
+import { POST as retryPOST } from '../src/app/api/tasks/[id]/retry/route'
 import { checkpointAgent } from '../src/lib/store'
 import { codingAgentPrompt } from '../src/lib/ai/context'
+import { AGENT_LIMITS } from '../src/lib/ai/agent'
 const call = (name: string, args: unknown = {}): ToolCall => ({
   id: randomUUID(),
   name,
@@ -598,7 +602,7 @@ function queueAgent(projectId: string, prompt = '创建待办应用') {
     undefined,
     {
       provider: 'gemini',
-      model: 'test-model',
+      model: 'gemini-3.8-flash',
       prompt,
       steps: 0,
       toolCalls: 0,
@@ -619,6 +623,107 @@ async function agentRun(
   await runTask(task, runtime, undefined, undefined, provider)
   return getTask(task.id)
 }
+describe('retrying an agent reply in place', () => {
+  const request = (body: unknown) =>
+    new Request('http://localhost', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+  it('reuses the original turn, resets exhausted execution state, and completes with a fresh attempt', async () => {
+    const project = newProject()
+    const original = queueAgent(project.id, '创建番茄钟')
+    original.agent!.steps = AGENT_LIMITS.steps
+    original.agent!.startedAt = Date.now() - AGENT_LIMITS.durationMs - 1
+    original.agent!.reservedOutputTokens = 999999
+    original.agent!.contextSummary = '过时的候选进展'
+    original.candidateFiles = original.candidateFiles.map((file) =>
+      file.path === 'src/App.jsx'
+        ? { ...file, content: 'export default () => <h1>失败的候选版本</h1>' }
+        : file,
+    )
+    checkpointAgent(original)
+    addEvent(original, '旧执行失败')
+    finishTask(original, '预算不足')
+    // Later messages stay in their existing positions when an older reply retries.
+    const later = queueAgent(project.id, '后续修改')
+    finishTask(later, '后续任务失败')
+    const draft = edit(project.id)
+    acquireWorker('test')
+    vi.stubEnv('GEMINI_API_KEY', 'fake')
+    try {
+      const response = await retryPOST(
+        request({
+          provider: 'gemini',
+          expectedRevision: draft.revision,
+          expectedVersionId: null,
+        }),
+        { params: { id: original.id } },
+      )
+      expect(response.status).toBe(202)
+      expect(await response.json()).toMatchObject({
+        id: original.id,
+        createdAt: original.createdAt,
+        status: 'queued',
+        attemptId: null,
+        events: [],
+        error: null,
+        agent: {
+          prompt: '创建番茄钟',
+          steps: 0,
+          startedAt: null,
+          reservedOutputTokens: 0,
+          usage: { inputTokens: 0, outputTokens: 0 },
+        },
+      })
+      expect(getTask(original.id).agent?.contextSummary).toBeUndefined()
+      expect(getTask(original.id).candidateFiles).toEqual(draft.files)
+      expect(getProject(project.id).tasks.map((task) => task.id)).toEqual([
+        later.id,
+        original.id,
+      ])
+      expect(agentConversation(original)).toEqual([])
+      const retried = claimTask()!
+      expect(retried.id).toBe(original.id)
+      expect(retried.attemptId).not.toBe(original.attemptId)
+      expect(() => checkpointAgent(original)).toThrow('操作已中断')
+      expect(finishTask(original, '迟到的失败')).toBe(false)
+      const result = await agentRun(
+        retried,
+        fakeRuntime(),
+        scripted(turn([], '番茄钟已完成')).provider,
+      )
+      expect(result.status).toBe('completed')
+      expect(getProject(project.id).tasks).toHaveLength(2)
+      expect(getProject(project.id).versions).toMatchObject([
+        { taskId: original.id, number: 1 },
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('rejects stale baselines, active projects, and duplicate retries without changing the failed reply', () => {
+    const { id } = newProject()
+    const original = queueAgent(id)
+    finishTask(original, '失败')
+    const failed = getTask(original.id)
+    const retry = (revision = 0, version: string | null = null) =>
+      retryAgentTask(original.id, revision, version, original.agent!)
+    expect(() => retry(1)).toThrow('草稿已更新')
+    expect(() => retry(0, randomUUID())).toThrow('当前版本已变化')
+    const active = queueAgent(id)
+    expect(() => retry()).toThrow('正在执行')
+    expect(getTask(original.id)).toEqual(failed)
+    cancelTask(active.id)
+    retry()
+    expect(() => retry()).toThrow('只能重试失败')
+    expect(() => retryAgentTask(active.id, 0, null, active.agent!)).toThrow(
+      '只能重试失败',
+    )
+  })
+})
 describe('conversation-first creation', () => {
   const request = (body: unknown) =>
     new Request('http://localhost/api/projects', {
@@ -767,6 +872,340 @@ describe('conversation-first creation', () => {
 })
 
 describe('coding agent workspace loop', () => {
+  it('exposes a loaded candidate during behavior checks without changing the draft or version', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const draft = getDraft(project.id)
+    const task = queueAgent(project.id)
+    let candidateId = ''
+    vi.mocked(verifyBrowser).mockImplementationOnce(
+      async (id, _assets, steps, _signal, _transport, options) => {
+        expect(steps).toHaveLength(2)
+        expect(getProject(project.id).tasks[0].candidatePreview).toBeUndefined()
+        options?.onLoaded?.()
+        candidateId = id
+        expect(
+          getProject(project.id).tasks[0].candidatePreview?.artifactId,
+        ).toBe(id)
+        expect(getProject(project.id).versions).toHaveLength(0)
+        expect(getDraft(project.id)).toEqual(draft)
+        expect(
+          artifactFor(project.id, draft.hash, 'sha256:fixed-template'),
+        ).toBeUndefined()
+        const response = await previewGET(new Request('http://localhost'), {
+          params: { artifactId: id },
+        })
+        expect(response.status).toBe(200)
+        const summary = await (
+          await taskGET(new Request('http://localhost'), {
+            params: { id: task.id },
+          })
+        ).json()
+        expect(summary.candidatePreview.artifactId).toBe(id)
+        expect(summary.candidateFiles).toBeUndefined()
+        return { ok: false, output: '功能断言未通过', completedSteps: 1 }
+      },
+    )
+    const model = scripted(
+      turn([
+        call('browser_test', {
+          steps: [
+            { action: 'click', selector: 'button', value: '' },
+            { action: 'assert_text', selector: 'output', value: '完成' },
+          ],
+        }),
+      ]),
+      turn([], '完成，功能检查有告警'),
+    )
+    const result = await agentRun(task, runtime, model.provider)
+    expect(result.status).toBe('completed')
+    expect(runtime.execute).toHaveBeenCalledTimes(1)
+    expect(verifyBrowser).toHaveBeenCalledTimes(1)
+    expect(getVersion(project.id, result.resultVersionId!).artifactId).toBe(
+      candidateId,
+    )
+    expect(getProject(project.id).tasks[0].candidatePreview).toBeUndefined()
+    expect(previewAsset(candidateId, 'index.html').body.length).toBeGreaterThan(
+      0,
+    )
+    expect(
+      result.events.find((event) => event.type === 'reply')?.message,
+    ).toContain('自动测试未通过')
+  })
+
+  it('retires a cancelled candidate and rejects a late ready callback', async () => {
+    const { project, runtime, version } = await initialize()
+    const task = queueAgent(project.id)
+    let candidateId = ''
+    vi.mocked(verifyBrowser).mockImplementationOnce(
+      async (id, _assets, _steps, _signal, _transport, options) => {
+        candidateId = id
+        options?.onLoaded?.()
+        expect(
+          getProject(project.id).tasks[0].candidatePreview?.artifactId,
+        ).toBe(id)
+        cancelTask(task.id)
+        expect(getProject(project.id).tasks[0].candidatePreview).toBeUndefined()
+        expect(() => options?.onLoaded?.()).toThrow('操作已中断')
+        return { ok: true, output: '迟到的通过结果', completedSteps: 0 }
+      },
+    )
+    const model = scripted(turn([call('build')]))
+    expect((await agentRun(task, runtime, model.provider)).status).toBe(
+      'cancelled',
+    )
+    expect(() => previewAsset(candidateId, 'index.html')).toThrow()
+    expect(getProject(project.id).project.currentVersionId).toBe(version.id)
+    expect(
+      previewAsset(version.artifactId, 'index.html').body.length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('cleans replaced and interrupted candidates, and never accepts a stale attempt', () => {
+    const project = newProject()
+    const task = queueAgent(project.id)
+    const first = randomUUID(),
+      second = randomUUID()
+    expect(stageCandidatePreview(task, 'template', first, asset('first'))).toBe(
+      true,
+    )
+    expect(
+      stageCandidatePreview(task, 'template', second, asset('second')),
+    ).toBe(true)
+    expect(() => previewAsset(first, 'index.html')).toThrow()
+    expect(
+      Buffer.from(previewAsset(second, 'index.html').body).toString(),
+    ).toBe('second')
+    expect(acquireWorker('new-worker')).toBe(true)
+    expect(() => previewAsset(second, 'index.html')).toThrow()
+    const resumed = claimTask('new-worker')!
+    expect(resumed.attemptId).not.toBe(task.attemptId)
+    expect(stageCandidatePreview(task, 'template', randomUUID(), asset())).toBe(
+      false,
+    )
+    expect(getProject(project.id).tasks[0].candidatePreview).toBeUndefined()
+    finishTask(resumed, '停止测试')
+  })
+
+  it('defers a schema-only first build until the page is implemented', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const model = scripted(
+      turn([
+        call('write_file', {
+          path: 'src/pixloom-schema.json',
+          content: '{"tables":[]}',
+        }),
+        call('build'),
+      ]),
+      turn([
+        call('delete_file', { path: 'src/pixloom-schema.json' }),
+        call('write_file', {
+          path: 'src/App.jsx',
+          content: 'export default () => <h1>完整页面</h1>',
+        }),
+        call('browser_test', {
+          steps: [{ action: 'assert_text', selector: 'h1', value: '完整页面' }],
+        }),
+      ]),
+      turn([], '完成'),
+    )
+    const result = await agentRun(
+      queueAgent(project.id),
+      runtime,
+      model.provider,
+    )
+    const deferred = JSON.parse(
+      (model.next.mock.calls[1][0][1] as Extract<AgentInput, { type: 'tool' }>)
+        .output,
+    )
+    expect(deferred).toMatchObject({ deferred: true, ok: false })
+    expect(result.status).toBe('completed')
+    expect(result.agent?.buildFailures).toBe(0)
+    expect(runtime.execute).toHaveBeenCalledTimes(1)
+    expect(verifyBrowser).toHaveBeenCalledTimes(1)
+  })
+
+  it('reuses successful checks and builds for unchanged source instead of expanding tests', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const test = (text: string) =>
+      call('browser_test', {
+        steps: [
+          { action: 'click', selector: 'button', value: '' },
+          { action: 'assert_text', selector: 'output', value: text },
+        ],
+      })
+    const model = scripted(
+      turn([test('first')]),
+      turn([call('build'), test('extra')]),
+      turn([], '完成'),
+    )
+    expect(
+      (await agentRun(queueAgent(project.id), runtime, model.provider)).status,
+    ).toBe('completed')
+    expect(runtime.execute).toHaveBeenCalledTimes(1)
+    expect(verifyBrowser).toHaveBeenCalledTimes(1)
+    const skipped = JSON.parse(
+      (model.next.mock.calls[2][0][1] as Extract<AgentInput, { type: 'tool' }>)
+        .output,
+    )
+    expect(skipped).toMatchObject({ skipped: true, completedSteps: 0 })
+    expect(skipped.output).toContain('本次步骤未执行')
+    expect(skipped.testedSteps[1].value).toBe('first')
+  })
+
+  it('honors the durable shared verification time budget without blocking version saving', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const task = queueAgent(project.id)
+    task.agent!.validationDurationMs = AGENT_LIMITS.validationDurationMs
+    checkpointAgent(task)
+    const model = scripted(
+      turn([
+        call('browser_test', {
+          steps: [{ action: 'assert_visible', selector: '#root', value: '' }],
+        }),
+      ]),
+      turn([], '完成'),
+    )
+    const result = await agentRun(task, runtime, model.provider)
+    expect(result.status).toBe('completed')
+    expect(verifyBrowser).not.toHaveBeenCalled()
+    expect(getProject(project.id).tasks[0].candidatePreview).toBeUndefined()
+    expect(
+      result.events.find((event) => event.type === 'reply')?.message,
+    ).toContain('自动测试未通过')
+    expect(
+      JSON.parse(
+        (
+          model.next.mock.calls[1][0][0] as Extract<
+            AgentInput,
+            { type: 'tool' }
+          >
+        ).output,
+      ).output,
+    ).toContain('90 秒')
+  })
+
+  it('compacts completed tool work into a durable summary and resumes in a fresh native session', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const task = queueAgent(project.id, '创建带分类的待办应用')
+    const summary =
+      '已修改 src/App.jsx；构建通过，尚未进行功能测试。下一步完成回复。'
+    const first = vi.fn(async () =>
+      turn([
+        call('write_file', {
+          path: 'src/App.jsx',
+          content: 'export default () => <h1>待办分类</h1>',
+        }),
+        call('build'),
+      ]),
+    )
+    const summarize = vi.fn(async () => turn([], summary))
+    const resumed = vi.fn(async () => turn([], '完成'))
+    const provider: ModelProvider = {
+      createSession: vi
+        .fn()
+        .mockReturnValueOnce({
+          next: first,
+          needsCompaction: (inputs: AgentInput[]) => inputs.length > 0,
+        })
+        .mockReturnValueOnce({ next: summarize })
+        .mockReturnValueOnce({ next: resumed }),
+    }
+    const result = await agentRun(task, runtime, provider)
+    expect(result.status).toBe('completed')
+    expect(result.agent).toMatchObject({
+      contextSummary: summary,
+      steps: 3,
+      toolCalls: 2,
+      usage: { inputTokens: 30, outputTokens: 60 },
+      reservedOutputTokens: 0,
+      responseBytes: 300,
+    })
+    const requests = vi
+      .mocked(provider.createSession)
+      .mock.calls.map(([request]) => request)
+    expect(requests[1]).toMatchObject({ tools: false })
+    expect(requests[1].prompt).toContain('创建带分类的待办应用')
+    expect(requests[1].prompt).toContain('write_file')
+    expect(requests[1].prompt).toContain('validation')
+    expect(requests[2].prompt).toContain(summary)
+    expect(requests[2].prompt).toContain('创建带分类的待办应用')
+    expect(resumed.mock.calls[0]).toEqual([[], 24000])
+    expect(summarize.mock.calls[0]).toEqual([[], 2048])
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(runtime.execute).toHaveBeenCalledTimes(1)
+    expect(result.events).toContainEqual(
+      expect.objectContaining({
+        message: '上下文已自动压缩，保留需求和开发进展后继续生成',
+      }),
+    )
+  })
+  it('does not commit an invalid compression summary or claim the task is complete', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const task = queueAgent(project.id)
+    const provider: ModelProvider = {
+      createSession: vi
+        .fn()
+        .mockReturnValueOnce({
+          next: async () => turn([call('list_files')]),
+          needsCompaction: (inputs: AgentInput[]) => inputs.length > 0,
+        })
+        .mockReturnValueOnce({ next: async () => turn([], ' ') }),
+    }
+    const result = await agentRun(task, runtime, provider)
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('未返回有效摘要')
+    expect(result.agent?.contextSummary).toBeUndefined()
+    expect(result.agent?.steps).toBe(2)
+    expect(result.agent?.reservedOutputTokens).toBe(0)
+    expect(getProject(project.id).versions).toHaveLength(0)
+  })
+  it('rejects a late compression result after cancellation', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const task = queueAgent(project.id)
+    const provider: ModelProvider = {
+      createSession: vi
+        .fn()
+        .mockReturnValueOnce({
+          next: async () => turn([call('list_files')]),
+          needsCompaction: (inputs: AgentInput[]) => inputs.length > 0,
+        })
+        .mockReturnValueOnce({
+          next: async () => {
+            cancelTask(task.id)
+            return turn([], '迟到的摘要')
+          },
+        }),
+    }
+    const result = await agentRun(task, runtime, provider)
+    expect(result.status).toBe('cancelled')
+    expect(result.agent?.contextSummary).toBeUndefined()
+    expect(provider.createSession).toHaveBeenCalledTimes(2)
+    expect(getProject(project.id).versions).toHaveLength(0)
+  })
+  it('can finish on the 200th model turn after more than 80 tool calls', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const model = scripted(
+      ...Array.from({ length: 199 }, () => turn([call('read_errors')])),
+      turn([], '完成'),
+    )
+    const result = await agentRun(
+      queueAgent(project.id),
+      runtime,
+      model.provider,
+    )
+    expect(result.status).toBe('completed')
+    expect(result.agent?.steps).toBe(200)
+    expect(result.agent?.toolCalls).toBe(199)
+    expect(model.next).toHaveBeenCalledTimes(200)
+  })
   it('keeps the original recipe requirements when continuing after a failed generation', async () => {
     const project = newProject(),
       runtime = fakeRuntime()
@@ -884,7 +1323,7 @@ describe('coding agent workspace loop', () => {
     const task = queueAgent(project.id)
     const result = await agentRun(task, runtime, model.provider)
     expect(result.status).toBe('completed')
-    expect(verifyBrowser).toHaveBeenCalledTimes(3) // initial smoke + behavior, then new smoke
+    expect(verifyBrowser).toHaveBeenCalledTimes(2) // combined check, then new smoke
     expect(runtime.execute).toHaveBeenCalledTimes(2)
     expect(model.next).toHaveBeenCalledTimes(3)
     expect(result.events).toContainEqual(
@@ -974,17 +1413,11 @@ describe('coding agent workspace loop', () => {
   it('repairs failed interactions and repeats tests after source edits', async () => {
     const project = newProject(),
       runtime = fakeRuntime()
-    vi.mocked(verifyBrowser)
-      .mockResolvedValueOnce({
-        ok: true,
-        output: '加载通过',
-        completedSteps: 0,
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        output: '断言失败：新增待办后数量仍是 0',
-        completedSteps: 2,
-      })
+    vi.mocked(verifyBrowser).mockResolvedValueOnce({
+      ok: false,
+      output: '断言失败：新增待办后数量仍是 0',
+      completedSteps: 2,
+    })
     const test = () =>
       call('browser_test', {
         steps: [{ action: 'assert_count', selector: 'li', value: '1' }],
@@ -1008,7 +1441,7 @@ describe('coding agent workspace loop', () => {
       'output',
       expect.stringContaining('数量仍是 0'),
     )
-    expect(verifyBrowser).toHaveBeenCalledTimes(4)
+    expect(verifyBrowser).toHaveBeenCalledTimes(2)
     expect(getTask(task.id).events).toContainEqual(
       expect.objectContaining({ type: 'reply', message: '完成' }),
     )
@@ -1064,17 +1497,11 @@ describe('coding agent workspace loop', () => {
   it('saves immediately after a failed behavior test without claiming tests passed', async () => {
     const project = newProject(),
       runtime = fakeRuntime()
-    vi.mocked(verifyBrowser)
-      .mockResolvedValueOnce({
-        ok: true,
-        output: '加载通过',
-        completedSteps: 0,
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        output: 'strict mode violation',
-        completedSteps: 2,
-      })
+    vi.mocked(verifyBrowser).mockResolvedValueOnce({
+      ok: false,
+      output: 'strict mode violation',
+      completedSteps: 2,
+    })
     const model = scripted(
       turn([
         call('browser_test', {
@@ -1354,20 +1781,12 @@ describe('coding agent workspace loop', () => {
     expect(runtime.execute).toHaveBeenCalledTimes(1)
     expect(getProject(project.id).project.currentVersionId).toBe(version.id)
   })
-  it('enforces step, output and tool budgets without committing unverified changes', async () => {
-    for (const field of [
-      'steps',
-      'toolCalls',
-      'outputTokens',
-      'responseBytes',
-    ] as const) {
+  it('enforces step and tool limits without committing unverified changes', async () => {
+    for (const field of ['steps', 'toolCalls'] as const) {
       const project = newProject(),
         runtime = fakeRuntime()
       const task = queueAgent(project.id)
-      if (field === 'outputTokens') task.agent!.usage.outputTokens = 48000
-      else
-        task.agent![field] =
-          field === 'steps' ? 100 : field === 'toolCalls' ? 80 : 1024 * 1024
+      task.agent![field] = AGENT_LIMITS[field]
       checkpointAgent(task)
       const model = scripted(
         turn([call('write_file', { path: 'src/App.jsx', content: 'late' })]),
@@ -1375,12 +1794,29 @@ describe('coding agent workspace loop', () => {
       const result = await agentRun(task, runtime, model.provider)
       expect(result.status).toBe('failed')
       if (field === 'steps') {
-        expect(result.error).toContain('最大 100 步')
+        expect(result.error).toContain('最大 200 步')
         expect(model.next).not.toHaveBeenCalled()
       }
       expect(getProject(project.id).versions).toHaveLength(0)
       expect(runtime.execute).not.toHaveBeenCalled()
     }
+  })
+  it('keeps each model request independent of accumulated output, response bytes and old reservations', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const task = queueAgent(project.id)
+    task.agent!.usage.outputTokens = 60000
+    task.agent!.reservedOutputTokens = 48000
+    task.agent!.responseBytes = 2 * 1024 * 1024
+    checkpointAgent(task)
+    const model = scripted(turn([call('read_errors')]), turn([], '完成'))
+    const result = await agentRun(task, runtime, model.provider)
+    expect(result.status).toBe('completed')
+    expect(model.next.mock.calls.map(([, allocation]) => allocation)).toEqual([
+      24000, 24000,
+    ])
+    expect(result.agent?.usage.outputTokens).toBe(60040)
+    expect(result.agent?.responseBytes).toBe(2 * 1024 * 1024 + 200)
   })
   it('restarts from candidate checkpoint with counters intact and fences the old attempt', async () => {
     const project = newProject()
@@ -1393,6 +1829,7 @@ describe('coding agent workspace loop', () => {
     )
     old.agent!.steps = 24
     old.agent!.buildFailures = 1
+    old.agent!.contextSummary = '已确定使用分类筛选；待补充云端保存。'
     checkpointAgent(old, 'first')
     releaseWorker('first')
     acquireWorker('second')
@@ -1406,6 +1843,7 @@ describe('coding agent workspace loop', () => {
       .prompt
     expect(prompt).toContain('本轮用户需求："创建待办应用"')
     expect(prompt).toContain('src/App.jsx')
+    expect(prompt).toContain('已确定使用分类筛选；待补充云端保存。')
     expect(getTask(next.id).status).toBe('completed')
     expect(getTask(next.id).agent?.steps).toBe(25)
     expect(getProject(project.id).versions).toHaveLength(1)
@@ -1414,7 +1852,7 @@ describe('coding agent workspace loop', () => {
     const project = newProject(),
       runtime = fakeRuntime()
     const task = queueAgent(project.id)
-    task.agent!.startedAt = Date.now() - 300001
+    task.agent!.startedAt = Date.now() - AGENT_LIMITS.durationMs - 1
     checkpointAgent(task)
     const model = scripted()
     expect((await agentRun(task, runtime, model.provider)).status).toBe(
