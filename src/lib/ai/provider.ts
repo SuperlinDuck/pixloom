@@ -21,7 +21,16 @@ export type ModelProvider = {
     model: string
     prompt: string
     signal: AbortSignal
+    instructions?: string
+    tools?: boolean
+    retries?: number
   }): ModelSession
+  generateText?(request: {
+    model: string
+    prompt: string
+    instructions: string
+    signal: AbortSignal
+  }): Promise<ModelTurn>
 }
 
 const MAX_RETRIES = 3
@@ -105,6 +114,7 @@ async function post(
   headers: Record<string, string>,
   body: unknown,
   signal: AbortSignal,
+  retries = MAX_RETRIES,
 ) {
   // Retry the exact serialized request without replaying inputs into session history.
   const payload = JSON.stringify(body)
@@ -131,7 +141,7 @@ async function post(
       })
     } catch (error) {
       if (signal.aborted) throw error
-      if (attempt === MAX_RETRIES)
+      if (attempt === retries)
         throw new Error('无法连接模型服务，请检查网络与 API 地址')
       await waitForRetry(1000 * 2 ** attempt, signal)
       continue
@@ -140,7 +150,7 @@ async function post(
     if ([400, 401, 403, 404, 413, 422, 429].includes(response.status))
       releaseModelCall(reservation)
     const failure = await requestError(response)
-    if (!failure.retryable || attempt === MAX_RETRIES) throw failure.error
+    if (!failure.retryable || attempt === retries) throw failure.error
     await waitForRetry(retryDelay(response, attempt), signal)
   }
   const reader = response.body?.getReader()
@@ -193,7 +203,19 @@ const tokens = (value: unknown) =>
     : 0
 
 export const geminiProvider: ModelProvider = {
-  createSession({ model, prompt, signal }) {
+  generateText(request) {
+    return geminiProvider
+      .createSession({ ...request, tools: false, retries: 0 })
+      .next([], 512)
+  },
+  createSession({
+    model,
+    prompt,
+    signal,
+    instructions = agentInstructions,
+    tools = true,
+    retries,
+  }) {
     const contents: unknown[] = [{ role: 'user', parts: [{ text: prompt }] }]
     return {
       async next(inputs, maxOutputTokens) {
@@ -224,19 +246,21 @@ export const geminiProvider: ModelProvider = {
           `${base}/${encodeURIComponent(model)}:generateContent`,
           { 'x-goog-api-key': key },
           {
-            systemInstruction: { parts: [{ text: agentInstructions }] },
+            systemInstruction: { parts: [{ text: instructions }] },
             contents,
-            tools: [
-              {
-                functionDeclarations: agentTools.map(
-                  ({ name, description, parameters }) => ({
-                    name,
-                    description,
-                    parametersJsonSchema: parameters,
-                  }),
-                ),
-              },
-            ],
+            tools: tools
+              ? [
+                  {
+                    functionDeclarations: agentTools.map(
+                      ({ name, description, parameters }) => ({
+                        name,
+                        description,
+                        parametersJsonSchema: parameters,
+                      }),
+                    ),
+                  },
+                ]
+              : undefined,
             generationConfig: {
               maxOutputTokens,
               ...(/^gemini-3(?:[.-]|$)/.test(model)
@@ -245,6 +269,7 @@ export const geminiProvider: ModelProvider = {
             },
           },
           signal,
+          retries,
         )
         const candidate = data.candidates?.[0]
         if (
@@ -289,7 +314,19 @@ export const geminiProvider: ModelProvider = {
   },
 }
 export const openaiProvider: ModelProvider = {
-  createSession({ model, prompt, signal }) {
+  generateText(request) {
+    return openaiProvider
+      .createSession({ ...request, tools: false, retries: 0 })
+      .next([], 512)
+  },
+  createSession({
+    model,
+    prompt,
+    signal,
+    instructions = agentInstructions,
+    tools = true,
+    retries,
+  }) {
     const history: unknown[] = [{ role: 'user', content: prompt }]
     return {
       async next(inputs, maxOutputTokens) {
@@ -314,20 +351,23 @@ export const openaiProvider: ModelProvider = {
           { Authorization: `Bearer ${key}` },
           {
             model,
-            instructions: agentInstructions,
+            instructions,
             input: history,
             store: false,
             include: ['reasoning.encrypted_content'],
             max_output_tokens: maxOutputTokens,
-            tools: agentTools.map(({ name, description, parameters }) => ({
-              type: 'function',
-              name,
-              description,
-              parameters,
-              strict: true,
-            })),
+            tools: tools
+              ? agentTools.map(({ name, description, parameters }) => ({
+                  type: 'function',
+                  name,
+                  description,
+                  parameters,
+                  strict: true,
+                }))
+              : undefined,
           },
           signal,
+          retries,
         )
         if (data.status !== 'completed' || !Array.isArray(data.output))
           throw new Error('GPT 未完成输出，请缩小需求或检查输出预算')

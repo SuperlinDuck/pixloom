@@ -5,6 +5,7 @@ import { CloudDefinitionError } from './cloud/errors'
 import { cleanupTestAccount } from './cloud/test-account'
 import { prepareCandidate, runCloudOperation } from './cloud/backend'
 import { runCodingAgent, AGENT_LIMITS } from './ai/agent'
+import { generateProjectTitle } from './ai/title'
 import { providerFor, type ModelProvider } from './ai/provider'
 import { randomUUID } from 'node:crypto'
 import {
@@ -54,6 +55,7 @@ export async function runTask(
   }, 300)
   const active = () => !controller.signal.aborted && attemptActive(task, owner)
   let touched = false
+  let titleGeneration: Promise<void> | undefined
   try {
     const userId = ownerOf(task.projectId)
     if (userId && !['stop', 'remove', 'unpublish'].includes(task.kind))
@@ -85,6 +87,12 @@ export async function runTask(
       checkpointAgent(task, owner)
       if (Date.now() - task.agent.startedAt >= AGENT_LIMITS.durationMs)
         throw new Error('Coding Agent 超过 5 分钟总时限')
+      titleGeneration = generateProjectTitle(
+        task,
+        modelProvider || providerFor(task.agent.provider),
+        controller.signal,
+        owner,
+      ).catch(() => {})
     }
     const id = task.projectId
     if (task.kind === 'stop' || task.kind === 'remove') {
@@ -196,6 +204,7 @@ export async function runTask(
           }
         },
       })
+      await titleGeneration
       if (!active()) throw new Error('操作已中断')
       completeBuild(task, templateId, result.artifactId, result.assets, owner)
       return
@@ -250,6 +259,8 @@ export async function runTask(
       finishTask(task, message)
     }
   } finally {
+    controller.abort()
+    await titleGeneration
     clearTimeout(timeout)
     clearInterval(poll)
     shutdown?.removeEventListener('abort', abort)

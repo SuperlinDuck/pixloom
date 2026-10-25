@@ -28,6 +28,10 @@ PIXLOOM_CLOUD_LEGACY_PROVISIONING=0
 
 项目 ref 是 Dashboard 地址 `/dashboard/project/<ref>` 中的字符串。共享模式不需要 `PIXLOOM_SUPABASE_ACCESS_TOKEN`、组织标识和 `PIXLOOM_CLOUD_MAX_PROJECTS`；这些旧配置仅用于兼容独立托管资源。
 
+两个池都需在 Supabase **Authentication → URL Configuration** 设置 **Site URL** 为工作台的 `PIXLOOM_AUTH_URL`（线上为 `https://pixloom.io`），不能保留默认的 `http://localhost:3000`。在 **Redirect URLs** 中添加 `https://pixloom.io/cloud/auth/confirmed` 和 `https://pixloom.io/cloud/auth/confirmed/**`；其他部署替换为自己的工作台来源，本机测试同样填写实际工作台来源。共享注册由服务端传入此来源下绑定应用、环境和代次的 `redirect_to`，不使用浏览器 Origin 或网关回环地址。邮件确认后经过平台确认页，先清除 URL 中的上游凭证，再自动跳回实际应用。开发环境回到 `https://pixloom.io/preview/<artifactId>`，其中产物 ID 取自注册时所在的预览；即使之后生成了新版，也保持原预览。客户端只提交产物 ID，不提交预览访问凭证或任意回跳 URL，服务端核对产物所属应用、环境及绑定代次。旧客户端未提交产物 ID 时，使用该应用最近的有效开发产物。生产环境从当前发布记录读取实际应用地址，例如 `https://<应用子域>.apps.pixloom.io/`，子域动态取自发布记录。验证失败、产物删除或应用下线时停留在提示页。确认页不建立平台或应用会话，返回后使用邮箱和密码登录；新版预览客户端需重新构建后生效。
+
+确认邮件模板保留 `{{ .ConfirmationURL }}`；自定义模板不要把确认链接写死为 `{{ .SiteURL }}` 或 localhost。URL 设置仅影响之后发出的邮件，已发出的旧邮件需要重新获取。确认页代码部署前，未带 `redirect_to` 的已有客户端仍回到 Site URL。
+
 重启 `pnpm dev`，在应用「云后端」启用 Pixloom Cloud，或让 Engineer 生成需要登录/持久化的应用。网关随 `pnpm dev` 启动；生产分别运行 Web、Worker 和 `pnpm gateway`。池初始化、应用角色和受控结构由 Worker 按需创建，失败后使用相同环境 ID 重试，不新建物理项目。
 
 ## VPS 网关
@@ -38,7 +42,7 @@ PIXLOOM_CLOUD_LEGACY_PROVISIONING=0
 
 ## 身份与权限
 
-- 同一池共用一套 Supabase Auth 账号体系，界面说明“使用 Pixloom Cloud 账号登录”。应用成员和数据权限分别维护，开发池与生产池账号体系相互独立。
+- 同一池共用一套 Supabase Auth 账号体系，登录界面文案由应用自行设计。应用成员和数据权限分别维护，开发池与生产池账号体系相互独立。
 - 用户在新应用输入正确邮箱/密码登录后才加入该应用；注册请求不会仅凭邮箱创建成员关系。默认需邮件验证；验证完成后返回原应用登录，也可使用 `cloud.verifyOtp(email,token)` 验证邮件验证码。邮件模板、发送额度和 SMTP 在 Supabase 池项目中统一配置。
 - 网关返回仅用于当前应用、环境和绑定代次的随机会话；Supabase access/refresh token 加密保存在平台 SQLite，不发送给应用。新版客户端通过可信预览入口或发布站点固定保持登录 7 天，从登录成功时计算，不因使用或续期顺延。刷新和正常重开浏览器自动恢复；退出立即撤销当前浏览器、当前应用环境的会话及全部短期访问凭证，其他应用、环境和设备不受影响。旧客户端保留原一小时内存会话行为。
 - 数据经有限 Gateway 操作进入数据库。每个应用使用独立非 owner 登录角色，没有创建表、绕过 RLS、读取私有成员表或访问其他应用 schema 的权限。事务设置可信用户上下文，强制 owner RLS；提交/回滚清除上下文。

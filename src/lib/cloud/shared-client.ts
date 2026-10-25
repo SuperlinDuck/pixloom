@@ -55,7 +55,7 @@ async function request(path,options={}){
 const name=value=>{if(!/^[a-z][a-z0-9_]{0,39}$/.test(value))throw new Error('名称无效');return value};
 const filePath=value=>value.split('/').map(encodeURIComponent).join('/');
 export const cloud={
- async signUp(email,password){return request('auth/signup',{method:'POST',body:{email,password}})},
+ async signUp(email,password){const previewArtifactId=location.pathname.match(/^\/api\/previews\/([a-f0-9-]{36})(?:\/|$)/)?.[1];return request('auth/signup',{method:'POST',body:{email,password,...(previewArtifactId?{previewArtifactId}:{})}})},
  async signIn(email,password){const value=await config(),version=++epoch;const result=value.authMode==='persistent-v1'?await broker('signin',{email,password}):await request('auth/signin',{method:'POST',body:{email,password}});if(version!==epoch)throw new Error('登录操作已中断');session=result;return result},
  async verifyOtp(email,token){const value=await config();const result=value.authMode==='persistent-v1'?await broker('verify',{email,token,type:'email'}):await request('auth/verify',{method:'POST',body:{email,token,type:'email'}});session=result;return result},
  async signOut(){const value=await config();epoch++;restoring=null;const previous=session;session=null;if(value.authMode==='persistent-v1')return broker('signout');if(previous){session=previous;try{await request('auth/signout',{method:'POST'})}finally{session=null}}},

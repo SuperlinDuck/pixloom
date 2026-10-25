@@ -74,6 +74,7 @@ export function db() {
     CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY,name TEXT NOT NULL,currentVersionId TEXT,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workspace_drafts (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,baseVersionId TEXT,revision INTEGER NOT NULL,files TEXT NOT NULL,hash TEXT NOT NULL,updatedAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,kind TEXT NOT NULL,status TEXT NOT NULL,baseVersionId TEXT,expectedDraftRevision INTEGER NOT NULL,attemptId TEXT,targetVersionId TEXT,candidateFiles TEXT NOT NULL,resultVersionId TEXT,summary TEXT NOT NULL,events TEXT NOT NULL,error TEXT,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS project_title_jobs (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,taskId TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,status TEXT NOT NULL);
     CREATE UNIQUE INDEX IF NOT EXISTS one_active_task ON tasks(projectId) WHERE status IN ('queued','running');
     CREATE TABLE IF NOT EXISTS preview_artifacts (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,sourceHash TEXT NOT NULL,templateId TEXT NOT NULL,bytes INTEGER NOT NULL,createdAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS preview_assets (artifactId TEXT NOT NULL REFERENCES preview_artifacts(id) ON DELETE CASCADE,path TEXT NOT NULL,contentType TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(artifactId,path));
@@ -85,7 +86,7 @@ export function db() {
     CREATE INDEX IF NOT EXISTS releases_project ON releases(projectId,createdAt);
     CREATE TABLE IF NOT EXISTS published_sites (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,releaseId TEXT NOT NULL REFERENCES releases(id) ON DELETE CASCADE,domain TEXT NOT NULL UNIQUE);
     CREATE TABLE IF NOT EXISTS publication_meta (id INTEGER PRIMARY KEY CHECK(id=1),installationId TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS project_public_ids (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,shortId TEXT NOT NULL UNIQUE CHECK(length(shortId)=6 AND shortId NOT GLOB '*[^a-z0-9]*'));
+    CREATE TABLE IF NOT EXISTS project_public_ids (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,shortId TEXT NOT NULL UNIQUE CHECK(length(shortId) BETWEEN 1 AND 63 AND shortId NOT GLOB '*[^a-z0-9-]*' AND substr(shortId,1,1) GLOB '[a-z0-9]' AND substr(shortId,-1,1) GLOB '[a-z0-9]'));
     CREATE TABLE IF NOT EXISTS auth_account (id INTEGER PRIMARY KEY CHECK(id=1),subject TEXT NOT NULL UNIQUE,name TEXT NOT NULL,email TEXT NOT NULL,picture TEXT);
     CREATE TABLE IF NOT EXISTS auth_sessions (tokenHash TEXT PRIMARY KEY,expiresAt INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_flows (tokenHash TEXT PRIMARY KEY,state TEXT NOT NULL,nonce TEXT NOT NULL,verifier TEXT NOT NULL,expiresAt INTEGER NOT NULL);
@@ -108,6 +109,24 @@ export function db() {
     INSERT OR IGNORE INTO cloud_schema_versions VALUES (2);
     PRAGMA user_version=3;
   `)
+  // Upgrade the original fixed-length mapping while preserving every existing ID.
+  // No tables reference this mapping; project ownership and uniqueness stay intact.
+  if (
+    (
+      c
+        .prepare(
+          "SELECT sql FROM sqlite_master WHERE name='project_public_ids'",
+        )
+        .get() as { sql: string }
+    ).sql.includes('length(shortId)=6')
+  ) {
+    c.exec(`BEGIN IMMEDIATE;
+      CREATE TABLE project_public_ids_custom (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,shortId TEXT NOT NULL UNIQUE CHECK(length(shortId) BETWEEN 1 AND 63 AND shortId NOT GLOB '*[^a-z0-9-]*' AND substr(shortId,1,1) GLOB '[a-z0-9]' AND substr(shortId,-1,1) GLOB '[a-z0-9]'));
+      INSERT INTO project_public_ids_custom SELECT * FROM project_public_ids;
+      DROP TABLE project_public_ids;
+      ALTER TABLE project_public_ids_custom RENAME TO project_public_ids;
+      COMMIT;`)
+  }
   if (
     !(c.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).some(
       (column) => column.name === 'agent',
@@ -266,16 +285,60 @@ export function createAgentProject(
   const value = snapshot(files)
   return transaction(() => {
     const project = insertProject(name, value, ownerId)
-    insertTask(project.id, 'agent', 0, null, undefined, undefined, agent)
+    const task = insertTask(
+      project.id,
+      'agent',
+      0,
+      null,
+      undefined,
+      undefined,
+      agent,
+    )
+    db()
+      .prepare('INSERT INTO project_title_jobs VALUES (?,?,?)')
+      .run(project.id, task.id, 'pending')
     return project
   })
 }
 export function renameProject(id: string, name: string) {
-  projectById(id)
-  db()
-    .prepare('UPDATE projects SET name=?,updatedAt=? WHERE id=?')
-    .run(name, now(), id)
-  return projectById(id)
+  return transaction(() => {
+    projectById(id)
+    db()
+      .prepare(
+        "UPDATE project_title_jobs SET status='cancelled' WHERE projectId=?",
+      )
+      .run(id)
+    db()
+      .prepare('UPDATE projects SET name=?,updatedAt=? WHERE id=?')
+      .run(name, now(), id)
+    return projectById(id)
+  })
+}
+export function projectTitlePending(task: Task) {
+  return !!db()
+    .prepare(
+      "SELECT taskId FROM project_title_jobs WHERE projectId=? AND taskId=? AND status='pending'",
+    )
+    .get(task.projectId, task.id)
+}
+export function finishProjectTitle(
+  task: Task,
+  name: string | null,
+  owner?: string,
+) {
+  return transaction(() => {
+    if (!attemptActive(task, owner) || !projectTitlePending(task)) return false
+    if (name)
+      db()
+        .prepare('UPDATE projects SET name=?,updatedAt=? WHERE id=?')
+        .run(name, now(), task.projectId)
+    db()
+      .prepare(
+        'UPDATE project_title_jobs SET status=? WHERE projectId=? AND taskId=?',
+      )
+      .run(name ? 'completed' : 'failed', task.projectId, task.id)
+    return true
+  })
 }
 function assertIdle(projectId: string) {
   if (

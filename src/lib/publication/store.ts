@@ -14,6 +14,7 @@ import {
   projectPublicId,
 } from '../store'
 import type { Release, Task } from '../types'
+import { normalizePublicationPrefix, publicationPrefixError } from './prefix'
 
 const now = () => new Date().toISOString()
 const select =
@@ -52,9 +53,15 @@ export function getRelease(id: string, projectId?: string): Release {
 }
 export function liveRelease(projectId: string) {
   const row = db()
-    .prepare('SELECT releaseId FROM published_sites WHERE projectId=?')
-    .get(projectId) as { releaseId: string } | undefined
-  return row ? getRelease(row.releaseId, projectId) : null
+    .prepare('SELECT releaseId,domain FROM published_sites WHERE projectId=?')
+    .get(projectId) as { releaseId: string; domain: string } | undefined
+  if (!row) return null
+  const release = getRelease(row.releaseId, projectId)
+  // The serving pointer owns the current address; historical releases keep theirs.
+  if (row.domain.startsWith(`p-${projectId.replace(/-/g, '')}.`)) return release
+  const url = new URL(release.url)
+  url.hostname = row.domain
+  return { ...release, domain: row.domain, url: url.origin }
 }
 export function releaseHistory(projectId: string) {
   projectById(projectId)
@@ -71,13 +78,106 @@ export type ReleaseInput = {
   releaseId?: string
   action: 'publish' | 'rollback' | 'unpublish'
   expectedReleaseId: string | null
+  prefix?: string
+  expectedPrefix?: string
 }
+
+type PrefixInput = {
+  prefix: string
+  expectedPrefix: string
+  expectedReleaseId: string | null
+}
+
+function changePrefix(
+  projectId: string,
+  input: PrefixInput,
+  target: { domain: string; url: string },
+) {
+  const prefix = normalizePublicationPrefix(input.prefix)
+  const error = publicationPrefixError(prefix)
+  if (error) throw new StoreError(error)
+  const current = projectPublicId(projectId)
+  if (current !== input.expectedPrefix)
+    throw new StoreError('域名前缀已变化，请刷新后重试', 409)
+  const live = liveRelease(projectId)
+  if ((live?.id || null) !== input.expectedReleaseId)
+    throw new StoreError('线上版本已变化，请刷新后重试', 409)
+  if (target.domain.split('.')[0] !== prefix)
+    throw new StoreError('发布地址与域名前缀不匹配', 409)
+  if (live) {
+    const expectedUrl = new URL(live.url)
+    expectedUrl.hostname = target.domain
+    if (
+      live.domain.slice(live.domain.indexOf('.')) !==
+        target.domain.slice(target.domain.indexOf('.')) ||
+      expectedUrl.origin !== target.url
+    )
+      throw new StoreError('发布域名配置已变化，请先下线原站点', 409)
+  }
+  if (
+    db()
+      .prepare(
+        "SELECT id FROM tasks WHERE projectId=? AND status IN ('queued','running')",
+      )
+      .get(projectId)
+  )
+    throw new StoreError('项目有正在执行的任务，请完成后再修改域名前缀', 409)
+  if (
+    db()
+      .prepare(
+        'SELECT projectId FROM project_public_ids WHERE shortId=? AND projectId!=?',
+      )
+      .get(prefix, projectId) ||
+    db()
+      .prepare(
+        'SELECT projectId FROM published_sites WHERE domain=? AND projectId!=?',
+      )
+      .get(target.domain, projectId)
+  )
+    throw new StoreError('该域名前缀已被使用，请换一个', 409)
+  // BEGIN IMMEDIATE serializes claims across Web/Worker processes. The unique
+  // constraint also covers unpublished projects and random default allocation.
+  db()
+    .prepare('UPDATE project_public_ids SET shortId=? WHERE projectId=?')
+    .run(prefix, projectId)
+  if (live)
+    db()
+      .prepare('UPDATE published_sites SET domain=? WHERE projectId=?')
+      .run(target.domain, projectId)
+  return target
+}
+
+export function updatePublicationPrefix(
+  projectId: string,
+  input: PrefixInput,
+  target: { domain: string; url: string },
+) {
+  return transaction(() => changePrefix(projectId, input, target))
+}
+
 export function enqueuePublication(
   projectId: string,
   input: ReleaseInput,
   target: { domain: string; url: string } | null,
 ) {
   return transaction(() => {
+    if (input.prefix !== undefined) {
+      if (
+        input.action !== 'publish' ||
+        input.expectedPrefix === undefined ||
+        !target
+      )
+        throw new StoreError('修改域名前缀需要当前前缀和发布地址')
+      changePrefix(
+        projectId,
+        {
+          ...input,
+          prefix: input.prefix,
+          expectedPrefix: input.expectedPrefix,
+        },
+        target,
+      )
+    }
     const project = projectById(projectId),
       draft = getDraft(projectId),
       live = liveRelease(projectId)
@@ -103,6 +203,11 @@ export function enqueuePublication(
     const domain = input.action === 'unpublish' ? live!.domain : target?.domain
     const url = input.action === 'unpublish' ? live!.url : target?.url
     if (!domain || !url) throw new StoreError('发布尚未启用', 503)
+    if (
+      input.action !== 'unpublish' &&
+      domain.split('.')[0] !== projectPublicId(projectId)
+    )
+      throw new StoreError('域名前缀已变化，请刷新后重试', 409)
     if (live && (live.domain !== domain || live.url !== url))
       throw new StoreError('发布域名配置已变化，请先下线原站点', 409)
     if (
@@ -226,14 +331,14 @@ export function completePublication(task: Task, owner?: string) {
 }
 export function siteForDomain(domain: string) {
   const row = db()
-    .prepare('SELECT releaseId FROM published_sites WHERE domain=?')
-    .get(domain) as { releaseId: string } | undefined
-  if (row) return getRelease(row.releaseId)
+    .prepare('SELECT projectId FROM published_sites WHERE domain=?')
+    .get(domain) as { projectId: string } | undefined
+  if (row) return liveRelease(row.projectId)
   const dot = domain.indexOf('.')
   if (dot === -1) return null
   const label = domain.slice(0, dot),
     suffix = domain.slice(dot)
-  if (/^[a-z0-9]{6}$/.test(label)) {
+  if (!publicationPrefixError(label)) {
     const site = db()
       .prepare(
         'SELECT published_sites.projectId,published_sites.releaseId,published_sites.domain FROM published_sites JOIN project_public_ids ON project_public_ids.projectId=published_sites.projectId WHERE project_public_ids.shortId=?',

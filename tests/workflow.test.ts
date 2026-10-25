@@ -661,8 +661,10 @@ describe('conversation-first creation', () => {
         ]),
         turn([], '已创建待办应用，可以在预览中使用。'),
       )
+      model.provider.generateText = vi.fn(async () => turn([], '待办清单'))
       const task = await agentRun(claimTask()!, fakeRuntime(), model.provider)
       expect(task.status).toBe('completed')
+      expect(getProject(project.id).project.name).toBe('待办清单')
       expect(task.events).toContainEqual(
         expect.objectContaining({
           type: 'reply',
