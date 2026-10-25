@@ -6,6 +6,12 @@ import { seal, unseal } from './crypto'
 import { resource } from './store'
 import { managementToken, type CloudExecution } from './provision'
 import { supabaseRequest } from './api'
+import { sharedApp } from './shared-store'
+import {
+  sharedTestAccount,
+  cleanupSharedTest,
+  redactSharedTest,
+} from './shared-testing'
 
 type Account = {
   taskId: string
@@ -70,6 +76,7 @@ async function authAdmin(
   }
 }
 export async function cloudTestAccount(task: Task, execution: CloudExecution) {
+  if (sharedApp(task.projectId)) return sharedTestAccount(task, execution)
   execution.check()
   const row = resource(task.projectId, 'development')
   if (row.status !== 'ready' || !row.ref)
@@ -145,6 +152,10 @@ export async function cloudTestAccount(task: Task, execution: CloudExecution) {
   }
 }
 export async function cleanupTestAccount(taskId: string) {
+  if (db().prepare('SELECT 1 FROM cloud_tests_v2 WHERE taskId=?').get(taskId)) {
+    await cleanupSharedTest(taskId)
+    return
+  }
   const account = db()
     .prepare('SELECT * FROM cloud_test_accounts WHERE taskId=?')
     .get(taskId) as Account | undefined
@@ -244,6 +255,7 @@ export async function cleanupTestAccount(taskId: string) {
 }
 
 export function redactTestCredentials(taskId: string, message: string) {
+  message = redactSharedTest(taskId, message)
   const row = db()
     .prepare('SELECT email,password FROM cloud_test_accounts WHERE taskId=?')
     .get(taskId) as { email: string; password: string } | undefined
@@ -276,4 +288,10 @@ export async function cleanupOrphanedTestAccounts() {
     )
     .all() as { taskId: string }[]
   for (const row of rows) await cleanupTestAccount(row.taskId)
+  const sharedRows = db()
+    .prepare(
+      "SELECT cloud_tests_v2.taskId FROM cloud_tests_v2 JOIN tasks ON tasks.id=cloud_tests_v2.taskId WHERE cloud_tests_v2.status!='deleted' AND tasks.status IN ('completed','failed','cancelled') LIMIT 10",
+    )
+    .all() as { taskId: string }[]
+  for (const row of sharedRows) await cleanupSharedTest(row.taskId)
 }

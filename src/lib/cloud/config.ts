@@ -1,5 +1,6 @@
 import { StoreError } from '../store'
 import { workspaceOrigin } from '../workspace-origin'
+import { sharedConfigured } from './shared-config'
 
 export function encryptionKey() {
   const value = process.env.PIXLOOM_CLOUD_ENCRYPTION_KEY || ''
@@ -45,6 +46,11 @@ export function oauthConfig() {
 }
 export function configured(kind: 'managed' | 'oauth') {
   try {
+    if (
+      kind === 'managed' &&
+      process.env.PIXLOOM_CLOUD_LEGACY_PROVISIONING !== '1'
+    )
+      return sharedConfigured()
     kind === 'managed' ? managedConfig() : oauthConfig()
     return true
   } catch {

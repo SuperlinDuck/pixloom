@@ -7,6 +7,8 @@ import { managementToken, type CloudExecution } from './provision'
 import { resource } from './store'
 import type { CloudEnvironment } from './types'
 import type { SourceFile } from '../types'
+import { sharedApp } from './shared-store'
+import { applySharedSchema, inspectSharedSchema } from './shared-db'
 
 export const CLOUD_SCHEMA_PATH = 'src/pixloom-schema.json'
 const identifier = z
@@ -129,6 +131,13 @@ export async function applySchema(
   schema: AppSchema,
   execution: CloudExecution,
 ) {
+  if (sharedApp(projectId))
+    return applySharedSchema(
+      projectId,
+      environment,
+      cloudSchema.parse(schema),
+      execution,
+    )
   const row = resource(projectId, environment)
   if (!row.ref || row.status !== 'ready')
     throw new StoreError('云资源未就绪', 409)
@@ -167,6 +176,7 @@ export async function applySchema(
   }
 }
 export async function inspectSchema(projectId: string, signal: AbortSignal) {
+  if (sharedApp(projectId)) return inspectSharedSchema(projectId, signal)
   const row = resource(projectId, 'development')
   if (!row.ref || row.status !== 'ready')
     throw new StoreError('开发后端尚未就绪', 409)

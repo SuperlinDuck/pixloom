@@ -25,6 +25,8 @@
     "browser:verify": "PIXLOOM_BROWSER_TESTS=1 vitest run tests/browser.test.ts",
     "cloud:verify": "PIXLOOM_CLOUD_TESTS=1 vitest run tests/cloud.test.ts tests/cloud-browser.test.ts",
     "cloud:verify-db": "node --import tsx scripts/verify-cloud-db.ts",
+    "cloud:verify-shared": "PIXLOOM_SHARED_DB_TESTS=1 vitest run tests/shared-cloud.test.ts",
+    "cloud:pool": "tsx scripts/cloud-pool.ts",
     "cloud:verify-runtime": "PIXLOOM_CLOUD_RUNTIME_TESTS=1 vitest run tests/cloud-runtime.test.ts"
   },
   "dependencies": {
@@ -34,6 +36,7 @@
     "lucide-react": "^0.379.0",
     "next": "^14.2.35",
     "parse5": "^7.3.0",
+    "pg": "^8.23.1",
     "playwright": "^1.64.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -44,6 +47,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "concurrently": "^9.1.0",

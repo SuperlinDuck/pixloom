@@ -6,6 +6,7 @@ const response = (value: unknown) =>
     headers: { 'Content-Type': 'application/json' },
   })
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
@@ -180,26 +181,31 @@ describe('native coding protocols', () => {
   it.each([401, 403, 404, 429, 503])(
     'reports HTTP %i without leaking upstream content',
     async (status) => {
+      vi.useFakeTimers()
       vi.stubEnv('OPENAI_API_KEY', 'fake')
-      vi.stubGlobal(
-        'fetch',
-        vi
-          .fn()
-          .mockResolvedValue(new Response('secret-upstream-body', { status })),
-      )
+      const fetcher = vi
+        .fn()
+        .mockImplementation(
+          async () => new Response('secret-upstream-body', { status }),
+        )
+      vi.stubGlobal('fetch', fetcher)
       const session = openaiProvider.createSession({
         model: 'test',
         prompt: '',
         signal: new AbortController().signal,
       })
-      await expect(session.next([], 500)).rejects.toThrow(`HTTP ${status}`)
+      const assertion = expect(session.next([], 500)).rejects.toThrow(
+        `HTTP ${status}`,
+      )
+      await vi.runAllTimersAsync()
+      await assertion
+      expect(fetcher).toHaveBeenCalledTimes(status >= 429 ? 4 : 1)
     },
   )
-  it('reports network, incomplete output and oversized model responses', async () => {
+  it('reports incomplete output and oversized model responses without retrying', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'fake')
     const fetcher = vi
       .fn()
-      .mockRejectedValueOnce(new Error('credential-containing error'))
       .mockResolvedValueOnce(response({ status: 'incomplete' }))
       .mockResolvedValueOnce(response({ padding: 'x'.repeat(512 * 1024) }))
     vi.stubGlobal('fetch', fetcher)
@@ -208,9 +214,9 @@ describe('native coding protocols', () => {
       prompt: '',
       signal: new AbortController().signal,
     })
-    await expect(session.next([], 500)).rejects.toThrow('网络')
     await expect(session.next([], 500)).rejects.toThrow('未完成')
     await expect(session.next([], 500)).rejects.toThrow('512 KiB')
+    expect(fetcher).toHaveBeenCalledTimes(2)
   })
   it('checks key, model and base URL before running', () => {
     vi.stubEnv('OPENAI_API_KEY', '')
@@ -245,23 +251,165 @@ it.each([
 ])(
   'classifies quota failures without exposing upstream content',
   async (body, hint) => {
+    vi.useFakeTimers()
     vi.stubEnv('OPENAI_API_KEY', 'fake')
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
+    const fetcher = vi
+      .fn()
+      .mockImplementation(
+        async () =>
           new Response(
             JSON.stringify({ ...body, secret: 'never-expose-this' }),
             { status: 429 },
           ),
-        ),
-    )
+      )
+    vi.stubGlobal('fetch', fetcher)
     const session = openaiProvider.createSession({
       model: 'test',
       prompt: '',
       signal: new AbortController().signal,
     })
-    await expect(session.next([], 500)).rejects.toThrow(hint)
+    const assertion = expect(session.next([], 500)).rejects.toThrow(hint)
+    await vi.runAllTimersAsync()
+    await assertion
+    expect(fetcher).toHaveBeenCalledTimes(hint === '短时调用限额' ? 4 : 1)
   },
 )
+
+describe('model request retries', () => {
+  it.each([
+    ['OpenAI', openaiProvider, { status: 'completed', output: [] }],
+    [
+      'Gemini',
+      geminiProvider,
+      {
+        candidates: [
+          {
+            finishReason: 'STOP',
+            content: { role: 'model', parts: [{ text: '完成' }] },
+          },
+        ],
+      },
+    ],
+  ])(
+    'retries the same %s payload three times with exponential delays',
+    async (_name, provider, result) => {
+      vi.useFakeTimers()
+      vi.stubEnv('OPENAI_API_KEY', 'fake')
+      vi.stubEnv('GEMINI_API_KEY', 'fake')
+      const fetcher = vi
+        .fn()
+        .mockImplementationOnce(async () => new Response('', { status: 429 }))
+        .mockImplementationOnce(async () => new Response('', { status: 503 }))
+        .mockRejectedValueOnce(new Error('secret-network-error'))
+        .mockResolvedValueOnce(response(result))
+      vi.stubGlobal('fetch', fetcher)
+      const session = provider.createSession({
+        model: 'test',
+        prompt: 'todo',
+        signal: new AbortController().signal,
+      })
+      const pending = session.next([{ type: 'user', text: '继续' }], 500)
+      await vi.advanceTimersByTimeAsync(999)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1999)
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fetcher).toHaveBeenCalledTimes(3)
+      await vi.advanceTimersByTimeAsync(3999)
+      expect(fetcher).toHaveBeenCalledTimes(3)
+      await vi.advanceTimersByTimeAsync(1)
+      await pending
+      expect(fetcher).toHaveBeenCalledTimes(4)
+      expect(new Set(fetcher.mock.calls.map((call) => call[1].body)).size).toBe(
+        1,
+      )
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
+
+  it('stops after three network retries and sanitizes the error', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('OPENAI_API_KEY', 'fake')
+    const fetcher = vi.fn().mockRejectedValue(new Error('secret-network-error'))
+    vi.stubGlobal('fetch', fetcher)
+    const session = openaiProvider.createSession({
+      model: 'test',
+      prompt: '',
+      signal: new AbortController().signal,
+    })
+    const assertion = expect(session.next([], 500)).rejects.toThrow(
+      '无法连接模型服务，请检查网络与 API 地址',
+    )
+    await vi.runAllTimersAsync()
+    await assertion
+    expect(fetcher).toHaveBeenCalledTimes(4)
+  })
+
+  it.each(['5', 'Sun, 25 Oct 2026 00:00:05 GMT'])(
+    'honors Retry-After %s',
+    async (header) => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-10-25T00:00:00Z'))
+      vi.stubEnv('OPENAI_API_KEY', 'fake')
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response('', { status: 429, headers: { 'Retry-After': header } }),
+        )
+        .mockResolvedValueOnce(response({ status: 'completed', output: [] }))
+      vi.stubGlobal('fetch', fetcher)
+      const session = openaiProvider.createSession({
+        model: 'test',
+        prompt: '',
+        signal: new AbortController().signal,
+      })
+      const pending = session.next([], 500)
+      await vi.advanceTimersByTimeAsync(4999)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      await pending
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it('cancels a pending retry immediately and clears the timer', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('OPENAI_API_KEY', 'fake')
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('', { status: 429 }))
+    vi.stubGlobal('fetch', fetcher)
+    const controller = new AbortController()
+    const session = openaiProvider.createSession({
+      model: 'test',
+      prompt: '',
+      signal: controller.signal,
+    })
+    const assertion = expect(session.next([], 500)).rejects.toThrow('cancelled')
+    await vi.advanceTimersByTimeAsync(0)
+    controller.abort(new Error('cancelled'))
+    await assertion
+    await vi.runAllTimersAsync()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not retry an aborted fetch', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'fake')
+    const controller = new AbortController()
+    const fetcher = vi.fn().mockImplementation(async () => {
+      controller.abort(new Error('cancelled'))
+      throw controller.signal.reason
+    })
+    vi.stubGlobal('fetch', fetcher)
+    const session = openaiProvider.createSession({
+      model: 'test',
+      prompt: '',
+      signal: controller.signal,
+    })
+    await expect(session.next([], 500)).rejects.toThrow('cancelled')
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+})

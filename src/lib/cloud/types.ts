@@ -5,7 +5,7 @@ export type CloudPublicConfig = {
   url: string
   publishableKey: string
 }
-export type CloudManifest = {
+export type LegacyCloudManifest = {
   format: 'pixloom-cloud-v1'
   projectId: string
   mode: CloudMode
@@ -15,6 +15,17 @@ export type CloudManifest = {
   buckets: Record<string, string>
   functions: Record<string, string>
 }
+export type SharedCloudManifest = {
+  format: 'pixloom-cloud-v2'
+  projectId: string
+  mode: 'managed'
+  environment: CloudEnvironment
+  environmentId: string
+  generation: string
+  endpoint: string
+  capabilities: ('auth' | 'database' | 'storage')[]
+}
+export type CloudManifest = LegacyCloudManifest | SharedCloudManifest
 export type CloudResource = {
   projectId: string
   environment: CloudEnvironment
@@ -32,6 +43,14 @@ export type CloudBinding = {
   connectionId: string | null
 }
 export type CloudStatus = {
+  provider?: 'shared' | 'legacy' | 'external'
+  productionConfigured?: boolean
+  limits?: {
+    maxApps: number
+    maxRows: number
+    maxBytes: number
+    maxFileBytes: number
+  }
   mode: CloudMode
   status: 'disabled' | CloudBinding['status']
   error: string | null

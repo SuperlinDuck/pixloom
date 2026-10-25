@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { createServer } from 'node:http'
 import { verifyBrowser, type CloudTransport } from '../src/lib/browser'
 import { cloudClientSource } from '../src/lib/cloud/client'
+import { sharedClientSource } from '../src/lib/cloud/shared-client'
 import type { BuildAsset } from '../src/lib/types'
 import type { BrowserStep } from '../src/lib/browser-schema'
 
@@ -18,9 +20,171 @@ const step = (
   value = '',
 ): BrowserStep => ({ action, selector, value })
 
+function sharedAssets(artifact: string, origin: string) {
+  const prefix = `/api/previews/${artifact}/`
+  const projectId = randomUUID(),
+    generation = randomUUID()
+  return [
+    asset(
+      'index.html',
+      `<div id="root"><button>登录</button><output>请登录</output></div><script type="module" src="${prefix}app.js"></script>`,
+    ),
+    asset(
+      'cloud.js',
+      sharedClientSource.replace(
+        'import.meta.env.BASE_URL',
+        JSON.stringify(prefix),
+      ),
+    ),
+    asset(
+      'app.js',
+      `import {cloud} from './cloud.js';document.querySelector('button').onclick=async()=>{try{await cloud.signIn('test@example.com','test-password');const user=await cloud.getUser();document.querySelector('output').textContent=user.email}catch{document.querySelector('output').textContent='登录失败'}}`,
+    ),
+    asset(
+      'pixloom-cloud.json',
+      JSON.stringify({
+        format: 'pixloom-cloud-v2',
+        projectId,
+        mode: 'managed',
+        environment: 'development',
+        environmentId: randomUUID(),
+        generation,
+        endpoint: `${origin}/cloud/v2/apps/${projectId}/environments/development/${generation}`,
+        capabilities: ['auth', 'database', 'storage'],
+      }),
+    ),
+  ]
+}
+
 describe.skipIf(process.env.PIXLOOM_CLOUD_TESTS !== '1')(
   'Cloud client in the real opaque-origin browser',
   () => {
+    it.each(['transport', 'gateway'] as const)(
+      'waits for slow shared Cloud login through %s before asserting user state',
+      async (mode) => {
+        const calls: string[] = []
+        const transport: CloudTransport = async (request) => {
+          const path = new URL(request.url).pathname
+          calls.push(path)
+          let result: unknown
+          if (path.endsWith('/auth/signin')) {
+            expect(JSON.parse(request.body!.toString())).toEqual({
+              email: 'test@example.com',
+              password: 'test-password',
+            })
+            await new Promise((resolve) => setTimeout(resolve, 3000))
+            result = {
+              access_token: 'app-session',
+              expires_at: Math.floor(Date.now() / 1000) + 3600,
+            }
+          } else {
+            expect(path).toMatch(/\/auth\/user$/)
+            expect(request.headers.authorization).toBe('Bearer app-session')
+            result = { id: 'user-a', email: 'test@example.com' }
+          }
+          return {
+            status: 200,
+            headers: {
+              'Access-Control-Allow-Origin': '*',
+              'Content-Type': 'application/json',
+            },
+            body: Buffer.from(JSON.stringify(result)),
+          }
+        }
+        // Exercise route.fetch against a real HTTP gateway as well as the injected test transport.
+        const server = createServer(async (req, res) => {
+          try {
+            const chunks: Buffer[] = []
+            for await (const chunk of req) chunks.push(Buffer.from(chunk))
+            const response = await transport({
+              url: `http://${req.headers.host}${req.url}`,
+              method: req.method!,
+              headers: req.headers as Record<string, string>,
+              body: Buffer.concat(chunks),
+            })
+            res.writeHead(response.status, response.headers)
+            res.end(response.body)
+          } catch {
+            res.writeHead(500).end()
+          }
+        })
+        try {
+          if (mode === 'gateway')
+            await new Promise<void>((resolve) =>
+              server.listen(0, '127.0.0.1', resolve),
+            )
+          const address = server.address()
+          const origin =
+            typeof address === 'object' && address
+              ? `http://127.0.0.1:${address.port}`
+              : 'http://127.0.0.1:4180'
+          const artifact = randomUUID()
+          const report = await verifyBrowser(
+            artifact,
+            sharedAssets(artifact, origin),
+            [
+              step('click', 'button'),
+              step('assert_text', 'output', 'test@example.com'),
+            ],
+            new AbortController().signal,
+            mode === 'transport' ? transport : undefined,
+          )
+          expect(report, report.output).toMatchObject({
+            ok: true,
+            completedSteps: 2,
+          })
+          expect(calls).toHaveLength(2)
+        } finally {
+          if (server.listening)
+            await new Promise<void>((resolve, reject) =>
+              server.close((error) => (error ? reject(error) : resolve())),
+            )
+        }
+      },
+      30000,
+    )
+
+    it.each([
+      {
+        error: new Error('connect ECONNREFUSED token=must-not-leak'),
+        status: 0,
+        expected: '无法连接 Cloud 网关',
+      },
+      {
+        error: new Error('Request timed out token=must-not-leak'),
+        status: 0,
+        expected: 'Cloud 请求超时',
+      },
+      { error: null, status: 503, expected: 'HTTP 503' },
+    ])(
+      'reports a safe Cloud failure reason: $expected',
+      async ({ error, status, expected }) => {
+        const artifact = randomUUID()
+        const report = await verifyBrowser(
+          artifact,
+          sharedAssets(artifact, 'http://127.0.0.1:4180'),
+          [step('click', 'button'), step('assert_text', 'output', '登录失败')],
+          new AbortController().signal,
+          async () => {
+            if (error) throw error
+            return {
+              status,
+              headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Content-Type': 'application/json',
+              },
+              body: Buffer.from(JSON.stringify({ message: 'must-not-leak' })),
+            }
+          },
+        )
+        expect(report.ok).toBe(false)
+        expect(report.completedSteps).toBe(2)
+        expect(report.output).toContain(expected)
+        expect(report.output).not.toContain('must-not-leak')
+      },
+      30000,
+    )
+
     it.each(['managed', 'external'] as const)(
       'logs in, saves and reloads persistent data in %s mode',
       async (mode) => {

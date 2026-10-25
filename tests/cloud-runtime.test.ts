@@ -40,6 +40,7 @@ beforeEach(async () => {
   vi.stubEnv('PIXLOOM_DATA_DIR', directory)
   vi.stubEnv('PIXLOOM_AUTH_URL', 'http://127.0.0.1:3000')
   vi.stubEnv('PIXLOOM_CLOUD_ENCRYPTION_KEY', '12'.repeat(32))
+  vi.stubEnv('PIXLOOM_CLOUD_LEGACY_PROVISIONING', '1')
   vi.stubEnv('PIXLOOM_SUPABASE_ACCESS_TOKEN', 'fixture-platform-token')
   vi.stubEnv('PIXLOOM_SUPABASE_ORGANIZATION', 'fixture-org')
   vi.stubEnv('PIXLOOM_CLOUD_MAX_PROJECTS', '4')

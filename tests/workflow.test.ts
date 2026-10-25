@@ -1153,13 +1153,17 @@ describe('coding agent workspace loop', () => {
       if (field === 'outputTokens') task.agent!.usage.outputTokens = 48000
       else
         task.agent![field] =
-          field === 'steps' ? 24 : field === 'toolCalls' ? 80 : 1024 * 1024
+          field === 'steps' ? 100 : field === 'toolCalls' ? 80 : 1024 * 1024
       checkpointAgent(task)
       const model = scripted(
         turn([call('write_file', { path: 'src/App.jsx', content: 'late' })]),
       )
       const result = await agentRun(task, runtime, model.provider)
       expect(result.status).toBe('failed')
+      if (field === 'steps') {
+        expect(result.error).toContain('最大 100 步')
+        expect(model.next).not.toHaveBeenCalled()
+      }
       expect(getProject(project.id).versions).toHaveLength(0)
       expect(runtime.execute).not.toHaveBeenCalled()
     }
@@ -1173,7 +1177,7 @@ describe('coding agent workspace loop', () => {
         ? { ...f, content: 'export default () => <h1>checkpoint</h1>' }
         : f,
     )
-    old.agent!.steps = 4
+    old.agent!.steps = 24
     old.agent!.buildFailures = 1
     checkpointAgent(old, 'first')
     releaseWorker('first')
@@ -1185,7 +1189,7 @@ describe('coding agent workspace loop', () => {
     const model = scripted(turn([], '完成'))
     await runTask(next, fakeRuntime(), undefined, 'second', model.provider)
     expect(getTask(next.id).status).toBe('completed')
-    expect(getTask(next.id).agent?.steps).toBe(7)
+    expect(getTask(next.id).agent?.steps).toBe(27)
     expect(getProject(project.id).versions).toHaveLength(1)
   })
   it('enforces total duration and never starts model work for an expired attempt', async () => {

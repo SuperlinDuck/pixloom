@@ -93,7 +93,7 @@ export function WorkspaceCloud({
         <Cloud size={24} />
         <div>
           <h2>云后端</h2>
-          <p>为应用提供登录、数据库、文件存储和服务端函数。</p>
+          <p>为应用提供登录、数据库和私有文件存储。</p>
         </div>
       </div>
       <div className="cloud-modes" role="group" aria-label="后端提供方式">
@@ -106,7 +106,7 @@ export function WorkspaceCloud({
           <strong>
             Pixloom Cloud <span>默认</span>
           </strong>
-          <small>由 Pixloom 分配和管理，无需 Supabase 账号。</small>
+          <small>复用平台共享资源池，按应用隔离数据。</small>
         </button>
         <button
           type="button"
@@ -155,7 +155,34 @@ export function WorkspaceCloud({
           </div>
           {mode === 'managed' && (
             <>
-              <p>需要后端时会分配独立的开发与生产资源，纯静态应用无需启用。</p>
+              <p>
+                {status.provider === 'legacy'
+                  ? '此应用沿用原有独立开发与生产资源。'
+                  : '多个应用共用开发池和生产池。启用时准备开发环境，首次发布时准备生产环境；纯静态应用不占后端资源。'}
+              </p>
+              {status.provider === 'shared' && (
+                <>
+                  <p className="workspace-hint">
+                    应用使用 Pixloom Cloud
+                    账号登录，同一池共享账号体系，应用数据分别授权。共享池暂不支持自定义服务端函数。
+                  </p>
+                  {!status.productionConfigured && (
+                    <p className="workspace-hint">
+                      生产池尚未配置，不影响开发；发布前需管理员完成配置。
+                    </p>
+                  )}
+                  {status.limits && (
+                    <p className="workspace-hint">
+                      每池最多 {status.limits.maxApps}{' '}
+                      个应用环境；每应用环境最多{' '}
+                      {status.limits.maxRows.toLocaleString()} 条记录、
+                      {Math.round(status.limits.maxBytes / 1048576)} MB 数据和{' '}
+                      {Math.round(status.limits.maxFileBytes / 1048576)} MB
+                      文件。实际池容量仍会限制写入。
+                    </p>
+                  )}
+                </>
+              )}
               {!status.managedConfigured && (
                 <p className="workspace-hint">
                   平台尚未配置 Pixloom Cloud，请联系管理员配置后启用，或选择自有
@@ -315,7 +342,7 @@ export function WorkspaceCloud({
             </button>
           )}
           <p className="workspace-hint">
-            开发与生产数据分开保存。发布会更新生产结构与函数；代码回滚不恢复业务数据。
+            开发与生产数据分开保存。发布会更新生产结构；代码回滚不恢复业务数据。
             {mode === 'managed'
               ? '资源用量计入平台额度。'
               : '资源用量由你的 Supabase 账号承担。'}

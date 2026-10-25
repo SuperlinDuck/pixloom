@@ -8,7 +8,7 @@ module.exports = {
   distDir,
   experimental: { cpus: 2 },
   webpack(config, { isServer }) {
-    if (isServer) config.externals.push('node:sqlite')
+    if (isServer) config.externals.push('node:sqlite', 'pg')
     return config
   },
 }

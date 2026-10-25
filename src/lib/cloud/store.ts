@@ -9,6 +9,8 @@ import {
 } from '../store'
 import { configured, managedConfig, projectRef } from './config'
 import { seal } from './crypto'
+import { sharedApp, sharedEnvironments } from './shared-store'
+import { sharedConfigured, sharedPoolConfig } from './shared-config'
 import type {
   CloudBinding,
   CloudEnvironment,
@@ -43,7 +45,34 @@ export function connectionId() {
 }
 export function cloudStatus(projectId: string): CloudStatus {
   const row = binding(projectId)
+  const shared = sharedApp(projectId)
+  const sharedRows = sharedEnvironments(projectId)
+  const config = sharedConfigured() ? sharedPoolConfig('development') : null
+  const sharedCleanup = (
+    db()
+      .prepare(
+        "SELECT count(*) AS n FROM cloud_tests_v2 JOIN tasks ON tasks.id=cloud_tests_v2.taskId WHERE tasks.projectId=? AND cloud_tests_v2.status='cleanup_pending'",
+      )
+      .get(projectId) as { n: number }
+  ).n
   return {
+    provider:
+      shared || !row
+        ? 'shared'
+        : row.mode === 'managed'
+          ? 'legacy'
+          : 'external',
+    productionConfigured: sharedConfigured('production'),
+    ...(config
+      ? {
+          limits: {
+            maxApps: config.maxApps,
+            maxRows: config.maxRows,
+            maxBytes: config.maxBytes,
+            maxFileBytes: config.maxFileBytes,
+          },
+        }
+      : {}),
     mode:
       row?.mode ||
       (
@@ -52,23 +81,41 @@ export function cloudStatus(projectId: string): CloudStatus {
           .get(projectId) as { mode: 'managed' | 'external' } | undefined
       )?.mode ||
       'managed',
-    status: row?.status || 'disabled',
-    error: row?.error || null,
-    managedConfigured: configured('managed'),
+    status:
+      (shared?.status as CloudStatus['status']) || row?.status || 'disabled',
+    error: shared?.error || row?.error || null,
+    managedConfigured:
+      row?.mode === 'managed'
+        ? (() => {
+            try {
+              managedConfig()
+              return true
+            } catch {
+              return false
+            }
+          })()
+        : configured('managed'),
     oauthConfigured: configured('oauth'),
     connected: !!connectionId(),
-    cleanupPending: (
-      db()
-        .prepare(
-          "SELECT COUNT(*) AS n FROM cloud_test_accounts WHERE projectId=? AND status='cleanup_pending'",
-        )
-        .get(projectId) as { n: number }
-    ).n,
-    resources: resources(projectId).map(({ environment, ref, status }) => ({
-      environment,
-      ref,
-      status,
-    })),
+    cleanupPending:
+      (
+        db()
+          .prepare(
+            "SELECT COUNT(*) AS n FROM cloud_test_accounts WHERE projectId=? AND status='cleanup_pending'",
+          )
+          .get(projectId) as { n: number }
+      ).n + sharedCleanup,
+    resources: shared
+      ? sharedRows.map(({ environment, status }) => ({
+          environment,
+          ref: null,
+          status,
+        }))
+      : resources(projectId).map(({ environment, ref, status }) => ({
+          environment,
+          ref,
+          status,
+        })),
   }
 }
 export type SetupInput =
@@ -76,6 +123,8 @@ export type SetupInput =
   | { mode: 'external'; development: string; production: string }
 export function reserveBinding(projectId: string, input: SetupInput) {
   return transaction(() => {
+    if (sharedApp(projectId))
+      throw new StoreError('后端已绑定共享池，不能切换提供方', 409)
     const old = binding(projectId)
     if (old) {
       if (old.mode !== input.mode)
@@ -97,13 +146,25 @@ export function reserveBinding(projectId: string, input: SetupInput) {
       projectRef(input.production)
       if (input.development === input.production)
         throw new StoreError('开发和生产必须选择不同的 Supabase 项目')
-      for (const ref of [input.development, input.production])
+      for (const ref of [input.development, input.production]) {
+        if (
+          [
+            process.env.PIXLOOM_CLOUD_DEV_PROJECT_REF,
+            process.env.PIXLOOM_CLOUD_PROD_PROJECT_REF,
+          ].includes(ref) ||
+          db().prepare('SELECT 1 FROM cloud_pools WHERE ref=?').get(ref)
+        )
+          throw new StoreError(
+            '共享池项目不能绑定为独立应用后端，请选择其他 Supabase 项目',
+            409,
+          )
         if (
           db()
             .prepare('SELECT projectId FROM cloud_resources WHERE ref=?')
             .get(ref)
         )
           throw new StoreError('此 Supabase 项目已被其他环境或应用使用', 409)
+      }
     } else {
       const config = managedConfig()
       const count = (
@@ -180,8 +241,13 @@ function validateSetupInput(projectId: string, input: SetupInput) {
   const old = binding(projectId)
   if (old && old.mode !== input.mode)
     throw new StoreError('不能切换已绑定的后端', 409)
-  if (input.mode === 'managed') managedConfig()
-  else {
+  if (sharedApp(projectId) && input.mode !== 'managed')
+    throw new StoreError('共享池绑定不能切换', 409)
+  if (input.mode === 'managed') {
+    if (old || process.env.PIXLOOM_CLOUD_LEGACY_PROVISIONING === '1')
+      managedConfig()
+    else sharedPoolConfig('development')
+  } else {
     if (!connectionId()) throw new StoreError('请先授权连接 Supabase', 409)
     projectRef(input.development)
     projectRef(input.production)
@@ -223,7 +289,7 @@ export function setCloudPreference(
 ) {
   return transaction(() => {
     assertCloudIdle(projectId)
-    if (binding(projectId))
+    if (binding(projectId) || sharedApp(projectId))
       throw new StoreError('后端已绑定，不能切换提供方', 409)
     db()
       .prepare(

@@ -46,23 +46,25 @@ pnpm dev
 
 版本预览绑定持久化构建产物，不受下一次构建失败影响。可以重新构建某个版本的预览，不增加源码版本；要求模板镜像摘要与该版本一致。历史版本恢复可直接复用其原有产物，不必调用模型或重新构建。
 
-## 云后端：两种模式
+## 云后端：共享资源池与自有 Supabase
 
-项目的“云后端”页默认选择 **Pixloom Cloud**：平台按需分配开发与生产两个 Supabase 项目，普通用户无需连接 Supabase。也可选择 **自有 Supabase**，通过 OAuth 授权后绑定两个不同的项目。纯静态应用不会分配云资源；尚未配置时显示明确提示。
+默认 **Pixloom Cloud** 使用平台预配置的 Supabase 开发池与生产池，多个应用共用两个物理项目。应用之间使用独立 schema、运行角色、成员授权和额度；纯静态应用不分配后端，开发环境按需启用，生产环境首次发布才分配。无需为每个应用新建两个 Supabase 项目，也不自动创建付费资源。
 
-平台管理员按 `.env.example` 配置 `PIXLOOM_CLOUD_ENCRYPTION_KEY`（`openssl rand -hex 32`）、`PIXLOOM_SUPABASE_ACCESS_TOKEN`、`PIXLOOM_SUPABASE_ORGANIZATION` 和资源上限；自有模式另需 `PIXLOOM_SUPABASE_CLIENT_ID` 与 `PIXLOOM_SUPABASE_CLIENT_SECRET`，OAuth 回调为 `<工作台来源>/api/cloud/supabase/callback`。Web 与 Worker 使用相同配置。配置平台管理凭证即允许 Agent 在需求需要时、或用户明确启用时分配资源，可能产生 Supabase 费用；每个应用占用两个项目，受 `PIXLOOM_CLOUD_MAX_PROJECTS` 限制。
+管理员按 [.env.example](.env.example) 配置 `PIXLOOM_CLOUD_ENCRYPTION_KEY`、`PIXLOOM_CLOUD_RUNTIME_URL` 和 `PIXLOOM_CLOUD_DEV_*` / `PIXLOOM_CLOUD_PROD_*`。开发池配置完整即可开发；生产池可稍后配置。详细步骤见 [共享池配置与运维](docs/cloud-shared.md)。共享模式无需 Management API Token、组织标识和旧的 `PIXLOOM_CLOUD_MAX_PROJECTS`；应用数量取决于池总容量和平台配额。
 
-一个 Engineer 统一生成前端与后端定义。`cloud_enable` 安装应用客户端，`src/pixloom-schema.json` 定义用户所属数据表和私有存储桶，`src/backend/functions/<name>.js` 定义经过登录校验的服务端函数。构建自动部署开发结构与函数，发布部署生产结构与函数。迁移仅增加表/列，RLS 隔离用户数据；不自动删除数据或回滚数据库。
+Engineer 使用同一套 `cloud_enable`、`cloud_schema`、`cloud_test_account` 工具。`src/pixloom-schema.json` 定义用户所属的数据表和逻辑私有存储桶；构建同步开发结构，发布同步生产结构；迁移只添加表/列，代码回滚不回滚业务数据。登录界面说明“使用 Pixloom Cloud 账号登录”：同一环境池共用身份提供方，应用成员和数据分别授权；会话保存在内存，刷新需重新登录。共享模式暂不支持自定义服务端函数，需要此能力可为新应用选择 **自有 Supabase**。
 
-浏览器只连接该版本绑定的后端。受限预览中的登录会话可能仅保留在内存，刷新后需要重新登录，但已保存的数据库记录仍存在。注册默认要求邮件确认；Agent 可创建临时开发测试账号验证登录后操作，结束时清理，日志脱敏。管理凭证不会发给模型或进入源码。详情、OAuth 权限、真实验收边界见 [Cloud 文档](docs/cloud.md)。
+自有模式通过 OAuth 绑定两个独立项目，需另配 `PIXLOOM_SUPABASE_CLIENT_ID`、`PIXLOOM_SUPABASE_CLIENT_SECRET`；回调为 `<工作台来源>/api/cloud/supabase/callback`。已有 v1 独立托管资源继续使用原绑定，不自动合并、删除或接管。兼容配置见 [独立后端文档](docs/cloud.md)，后续设计见 [Cloud v2](docs/cloud-v2.md)。
+
+共享池通过独立网关提供有限登录、CRUD 和文件接口；凭证不进入模型、源码、构建容器或浏览器。VPS 使用独立 HTTPS 网关来源，Web/Worker/网关共用池配置与数据目录。管理员可按应用导出、恢复到新空间及确认删除；真实生产使用前须完成自己的备份恢复和上游服务验收。
 
 ## AI 生成与继续修改
 
 首页选择模型并输入“创建待办应用”，发送后进入对话与预览；完成后可继续输入“增加分类筛选”。对话显示完整需求和完成说明，执行详情默认折叠。每次请求基于已保存草稿与当前版本；提交前会先保存本页源码编辑。历史浏览模式下不能发起生成。模型未配置或 Worker 离线时会保留输入并提示，不创建空项目。
 
-Agent 可以列出、读取和搜索候选源码，完整写入、精确编辑或删除文件，运行固定构建并读取错误。每次成功构建后自动检查预览加载、页面异常与控制台错误；Agent 还必须通过 `browser_test` 操作和断言所请求功能，才能创建 AI 版本。浏览器失败会反馈给 Agent 修复，源码变化后须重新验证。失败或取消时保留原草稿、版本和预览，候选源码保存在任务中，可点击“载入候选源码”检查、保存并继续修改。
+Agent 可以列出、读取和搜索候选源码，完整写入、精确编辑或删除文件，运行固定构建并读取错误。每次成功构建后自动检查预览加载、页面异常与控制台错误；Agent 还必须通过 `browser_test` 操作和断言所请求功能，才能创建 AI 版本。浏览器失败会反馈给 Agent 修复，源码变化后须重新验证。失败或取消时保留原草稿、版本和预览，候选源码保存在任务中。失败消息提供“重试”，使用原需求和模型、基于当前草稿创建新任务；重试不会清空输入框中尚未发送的内容。回复和错误信息可通过“复制”按钮复制，对话中不展示候选源码载入入口。
 
-每个任务最多 24 次模型请求、80 次工具调用、48,000 输出 tokens（包含模型报告的推理用量），单次最多 24,000 tokens、累计 1 MiB 模型响应、5 分钟总执行时间，以及三次失败构建和三次失败浏览器验证（各两轮修复）。步骤、用量、候选源码、失败计数与开始时间持久化；重启从候选源码开始新模型会话，沿用剩余预算。被中断的在途请求保留输出预算预留，避免重启绕过上限。用量以模型实际返回为准，不是账单核对。
+每个任务最多 100 次模型请求、80 次工具调用、48,000 输出 tokens（包含模型报告的推理用量），单次最多 24,000 tokens、累计 1 MiB 模型响应、5 分钟总执行时间，以及三次失败构建和三次失败浏览器验证（各两轮修复）。步骤、用量、候选源码、失败计数与开始时间持久化；重启从候选源码开始新模型会话，沿用剩余预算。被中断的在途请求保留输出预算预留，避免重启绕过上限。用量以模型实际返回为准，不是账单核对。
 
 受限预览禁用原生表单提交与同源存储。生成指令要求通过 `type="button"` / `onClick` 处理应用操作，并在 localStorage 不可用时回退内存；纯前端内存数据不保证刷新后保留；已连接 Cloud 的业务数据由数据库持久保存。
 
@@ -103,6 +105,7 @@ pnpm test              # 工具协议、生成/修复/预算、文件与版本�
 pnpm browser:verify    # 真实 Chromium：交互断言、页面错误、CSP、隔离与取消
 pnpm cloud:verify      # 确定性上游 + 真实 Chromium：两种模式的应用客户端
 pnpm cloud:verify-runtime # 确定性模型与上游 + 真实 Docker/Vite/浏览器完整生成
+pnpm cloud:verify-shared # 独立 PostgreSQL + Docker/Vite + Chromium：共享池隔离、两应用生成发布、恢复/删除
 pnpm cloud:verify-db   # 独立 PostgreSQL 测试容器：迁移、RLS、存储权限与数据保留
 pnpm typecheck
 pnpm build
@@ -123,7 +126,8 @@ pnpm publish:verify    # 临时数据库 + Docker + 真实 Caddy + 发布/更新
 
 Web 默认绑定 `127.0.0.1`，API 只接受本机 Host 并拒绝跨站平台请求；仅预览 GET 资源允许 opaque-origin iframe 加载。当前工作台保持本机/SSH 隧道访问，Caddy 只公开独立发布网关，不反向代理工作台。
 
-- [Pixloom Cloud 与自有 Supabase](docs/cloud.md)
+- [共享池配置与运维](docs/cloud-shared.md)
+- [独立后端与自有 Supabase](docs/cloud.md)
 - [下一步实施计划](docs/roadmap.md)
 - [多文件工作空间与版本方案](docs/workspace-versions-plan.md)
 - [当前架构](docs/architecture.md)

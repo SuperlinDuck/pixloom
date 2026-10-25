@@ -1,4 +1,8 @@
-import { cloudNetworkAllowed, readManifest } from './cloud/manifest'
+import {
+  cloudNetworkAllowed,
+  readManifest,
+  manifestEndpoint,
+} from './cloud/manifest'
 import { chromium, type FrameLocator, type Page } from 'playwright'
 import { existsSync } from 'node:fs'
 import { runtimePreviewHeaders } from './runtime/preview'
@@ -25,7 +29,11 @@ export type BrowserVerifier = (
   cloudTransport?: CloudTransport,
 ) => Promise<BrowserReport>
 
-async function perform(frame: FrameLocator, step: BrowserStep) {
+async function perform(
+  frame: FrameLocator,
+  step: BrowserStep,
+  timeout: number,
+) {
   const target = frame.locator(step.selector)
   switch (step.action) {
     case 'click':
@@ -42,7 +50,7 @@ async function perform(frame: FrameLocator, step: BrowserStep) {
       return target.uncheck()
     default: {
       // Assertions retry briefly for React updates without an arbitrary model-supplied script.
-      const deadline = Date.now() + 2000
+      const deadline = Date.now() + timeout
       do {
         let ok = false
         switch (step.action) {
@@ -86,7 +94,11 @@ export const verifyBrowser: BrowserVerifier = async (
   if (!/^[a-zA-Z0-9-]+$/.test(artifactId)) throw new Error('预览标识无效')
   const validated = validateAssets(assets)
   const cloud = readManifest(validated.assets)
-  const backendOrigin = cloud?.[cloud.environment].url
+  const backendOrigin = manifestEndpoint(cloud)
+  // Login can include an upstream auth request and subsequent user/data reads.
+  // Give those requests time to finish before failing an assertion and closing the browser.
+  const stepTimeout = cloud ? 15000 : 2000
+  const verificationTimeout = cloud ? 60000 : 25000
   signal.throwIfAborted()
   const origin = 'http://127.0.0.1:4173'
   const prefix = `/api/previews/${artifactId}/`
@@ -114,16 +126,21 @@ export const verifyBrowser: BrowserVerifier = async (
       '浏览器验证环境不可用，请执行 pnpm browser:install 或安装 Google Chrome；未保存候选版本',
     )
   }
+  let closing = false
   const abort = () => {
+    closing = true
     void browser.close().catch(() => {})
   }
-  const deadline = setTimeout(abort, 25000)
-  signal.addEventListener('abort', abort, { once: true })
   let completedSteps = 0
   const errors: string[] = []
   const record = (message: string) => {
     if (errors.length < 12) errors.push(message.slice(0, 1200))
   }
+  const deadline = setTimeout(() => {
+    record(`浏览器验证超过 ${verificationTimeout / 1000} 秒时限`)
+    abort()
+  }, verificationTimeout)
+  signal.addEventListener('abort', abort, { once: true })
   try {
     signal.throwIfAborted()
     const context = await browser.newContext({
@@ -131,7 +148,7 @@ export const verifyBrowser: BrowserVerifier = async (
       acceptDownloads: false,
       viewport: { width: 1280, height: 800 },
     })
-    context.setDefaultTimeout(2000)
+    context.setDefaultTimeout(stepTimeout)
     await context.routeWebSocket('**/*', (socket) => socket.close())
     let page: Page
     let bootstrapped = false
@@ -162,6 +179,8 @@ export const verifyBrowser: BrowserVerifier = async (
               response.body.length > 2 * 1024 * 1024
             )
               throw new Error('后端响应无效')
+            if (response.status >= 400)
+              record(`绑定的 Cloud 请求失败：HTTP ${response.status}`)
             return await route.fulfill(response)
           }
           const response = await route.fetch({
@@ -172,10 +191,27 @@ export const verifyBrowser: BrowserVerifier = async (
             throw new Error('禁止后端重定向')
           const body = await response.body()
           if (body.length > 2 * 1024 * 1024) throw new Error('响应过大')
+          if (response.status() >= 400)
+            record(`绑定的 Cloud 请求失败：HTTP ${response.status()}`)
           return await route.fulfill({ response, body })
-        } catch {
-          record('绑定的 Cloud 请求失败或超过限制')
-          return route.abort()
+        } catch (error) {
+          if (!closing) {
+            // Do not expose request headers, credentials, response bodies or raw transport errors.
+            const message = error instanceof Error ? error.message : ''
+            const reason = /ECONNREFUSED/.test(message)
+              ? '无法连接 Cloud 网关，请检查网关进程和地址'
+              : /ENOTFOUND|EAI_AGAIN/.test(message)
+                ? 'Cloud 网关域名解析失败'
+                : /timeout|timed out/i.test(message)
+                  ? 'Cloud 请求超时'
+                  : /请求过大|响应过大|后端响应无效|禁止后端重定向/.test(
+                        message,
+                      )
+                    ? '请求或响应超过限制，或后端返回了无效响应'
+                    : '网络或传输失败'
+            record(`绑定的 Cloud 请求失败：${reason}`)
+          }
+          return route.abort().catch(() => {})
         }
       }
       if (request.method() !== 'GET' || url.origin !== origin) {
@@ -234,7 +270,7 @@ export const verifyBrowser: BrowserVerifier = async (
       record('React 根节点为空')
     for (const step of steps) {
       signal.throwIfAborted()
-      await perform(frame, step)
+      await perform(frame, step, stepTimeout)
       completedSteps++
     }
     await page.waitForTimeout(150)
@@ -242,6 +278,7 @@ export const verifyBrowser: BrowserVerifier = async (
     signal.throwIfAborted()
     record((error as Error).message)
   } finally {
+    closing = true
     clearTimeout(deadline)
     signal.removeEventListener('abort', abort)
     await browser.close().catch(() => {})

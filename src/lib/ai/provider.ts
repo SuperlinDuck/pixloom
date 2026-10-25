@@ -23,60 +23,111 @@ export type ModelProvider = {
   }): ModelSession
 }
 
+const MAX_RETRIES = 3
+
+function waitForRetry(delay: number, signal: AbortSignal) {
+  signal.throwIfAborted()
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', abort)
+      resolve()
+    }, delay)
+    signal.addEventListener('abort', abort, { once: true })
+  })
+}
+
+function retryDelay(response: Response, attempt: number) {
+  const fallback = 1000 * 2 ** attempt
+  const header = response.headers.get('Retry-After')
+  if (!header?.trim()) return fallback
+  const seconds = Number(header)
+  const delay = Number.isFinite(seconds)
+    ? seconds * 1000
+    : Date.parse(header) - Date.now()
+  // Keep long server cooldowns within Node's timer range; task cancellation still applies.
+  return Number.isFinite(delay)
+    ? Math.min(2147483647, Math.max(fallback, delay))
+    : fallback
+}
+
+async function requestError(response: Response) {
+  const hints: Record<number, string> = {
+    401: 'API Key 无效，请检查服务端配置',
+    403: '模型访问被拒绝，请检查权限与地区',
+    404: '模型或 API 地址不可用，请检查模型名称',
+    429: '请求限流或额度不足，请检查额度后重试',
+  }
+  let retryable =
+    response.status === 408 || response.status === 429 || response.status >= 500
+  // Inspect only a bounded error body for quota category; never echo or persist it.
+  if (response.status === 429 && response.body) {
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let bytes = 0
+    try {
+      while (bytes < 16000) {
+        const chunk = await reader.read()
+        if (chunk.done) break
+        bytes += chunk.value.byteLength
+        if (bytes <= 16000) chunks.push(chunk.value)
+      }
+      const value = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      const details = JSON.stringify(value.error?.details || [])
+      if (value.error?.code === 'insufficient_quota') {
+        hints[429] = '模型账户额度不足，请检查余额与计费配置'
+        retryable = false
+      } else if (/per.?day|daily/i.test(details)) {
+        hints[429] = '每日调用额度已用尽，请检查模型服务配额或更换配置'
+        retryable = false
+      } else if (/per.?minute|per.?second|rate_limit_exceeded/i.test(details))
+        hints[429] = '触发短时调用限额，请等待后重试或提高模型服务配额'
+    } catch {
+      /* Keep the generic quota message for unrecognized error formats. */
+    } finally {
+      await reader.cancel().catch(() => {})
+    }
+  } else await response.body?.cancel()
+  return {
+    retryable,
+    error: new Error(
+      `模型请求失败（HTTP ${response.status}），${hints[response.status] || (response.status >= 500 ? '模型服务暂时不可用，请稍后重试' : '请检查模型和工具调用配置')}`,
+    ),
+  }
+}
+
 async function post(
   url: string,
   headers: Record<string, string>,
   body: unknown,
   signal: AbortSignal,
 ) {
+  // Retry the exact serialized request without replaying inputs into session history.
+  const payload = JSON.stringify(body)
   let response: Response
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-      signal,
-    })
-  } catch (error) {
-    if (signal.aborted) throw error
-    throw new Error('无法连接模型服务，请检查网络与 API 地址')
-  }
-  if (!response.ok) {
-    const hints: Record<number, string> = {
-      401: 'API Key 无效，请检查服务端配置',
-      403: '模型访问被拒绝，请检查权限与地区',
-      404: '模型或 API 地址不可用，请检查模型名称',
-      429: '请求限流或额度不足，请检查额度后重试',
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted()
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: payload,
+        signal,
+      })
+    } catch (error) {
+      if (signal.aborted) throw error
+      if (attempt === MAX_RETRIES)
+        throw new Error('无法连接模型服务，请检查网络与 API 地址')
+      await waitForRetry(1000 * 2 ** attempt, signal)
+      continue
     }
-    // Inspect only a bounded error body for quota category; never echo or persist it.
-    if (response.status === 429 && response.body) {
-      const reader = response.body.getReader()
-      const chunks: Uint8Array[] = []
-      let bytes = 0
-      try {
-        while (bytes < 16000) {
-          const chunk = await reader.read()
-          if (chunk.done) break
-          bytes += chunk.value.byteLength
-          if (bytes <= 16000) chunks.push(chunk.value)
-        }
-        const value = JSON.parse(Buffer.concat(chunks).toString('utf8'))
-        const details = JSON.stringify(value.error?.details || [])
-        if (/per.?day|daily/i.test(details))
-          hints[429] = '每日调用额度已用尽，请检查模型服务配额或更换配置'
-        else if (/per.?minute|per.?second|rate_limit_exceeded/i.test(details))
-          hints[429] = '触发短时调用限额，请等待后重试或提高模型服务配额'
-        else if (value.error?.code === 'insufficient_quota')
-          hints[429] = '模型账户额度不足，请检查余额与计费配置'
-      } catch {
-        /* Keep the generic quota message for unrecognized error formats. */
-      } finally {
-        await reader.cancel().catch(() => {})
-      }
-    } else await response.body?.cancel()
-    throw new Error(
-      `模型请求失败（HTTP ${response.status}），${hints[response.status] || (response.status >= 500 ? '模型服务暂时不可用，请稍后重试' : '请检查模型和工具调用配置')}`,
-    )
+    if (response.ok) break
+    const failure = await requestError(response)
+    if (!failure.retryable || attempt === MAX_RETRIES) throw failure.error
+    await waitForRetry(retryDelay(response, attempt), signal)
   }
   const reader = response.body?.getReader()
   if (!reader) throw new Error('模型服务返回空响应')

@@ -168,6 +168,7 @@ beforeEach(async () => {
   vi.stubEnv('PIXLOOM_GOOGLE_CLIENT_ID', '')
   vi.stubEnv('PIXLOOM_GOOGLE_CLIENT_SECRET', '')
   vi.stubEnv('PIXLOOM_CLOUD_ENCRYPTION_KEY', '12'.repeat(32))
+  vi.stubEnv('PIXLOOM_CLOUD_LEGACY_PROVISIONING', '1')
   vi.stubEnv('PIXLOOM_SUPABASE_ACCESS_TOKEN', 'platform-secret-token')
   vi.stubEnv('PIXLOOM_SUPABASE_ORGANIZATION', 'platform-org')
   vi.stubEnv('PIXLOOM_SUPABASE_REGION', 'apac')
@@ -281,6 +282,8 @@ describe('dual-mode provisioning and durable external side effects', () => {
     expect(cloudStatus(p.id).status).toBe('ready')
     expect(resources(p.id).every((row) => row.password === null)).toBe(true)
     const config = cloudManifest(p.id)
+    if (config.format !== 'pixloom-cloud-v1')
+      throw new Error('Expected legacy manifest')
     expect(JSON.stringify(config)).not.toMatch(/platform-secret|sb_secret/)
     expect(config.development.ref).not.toBe(config.production.ref)
     await prepareCloud(p.id, { mode: 'managed' }, active())
@@ -542,6 +545,8 @@ describe('versioned backend definitions, preview and publication', () => {
       body: Buffer.from(asset.body, 'base64'),
     }))
     const pinned = readManifest(decoded)!
+    if (pinned.format !== 'pixloom-cloud-v1')
+      throw new Error('Expected legacy manifest')
     expect(pinned.functions.echo).toBe(fn.slug)
     expect(pinned.environment).toBe('development')
     expect(readManifest(productionAssets(decoded))?.environment).toBe(

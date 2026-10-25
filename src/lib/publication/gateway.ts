@@ -1,4 +1,8 @@
 import { artifactManifest } from '../cloud/manifest'
+import { validCloudEndpoint } from '../runtime/preview'
+import { sharedRuntimeHandler } from '../cloud/shared-runtime'
+import { runtimeOrigin } from '../cloud/shared-config'
+import { Readable } from 'node:stream'
 import {
   createServer,
   type IncomingMessage,
@@ -13,10 +17,7 @@ export function publishedHeaders(
   immutable = false,
   backendOrigin?: string,
 ) {
-  if (
-    backendOrigin &&
-    !/^https:\/\/[a-z]{20}\.supabase\.co$/.test(backendOrigin)
-  )
+  if (backendOrigin && !validCloudEndpoint(backendOrigin))
     throw new Error('发布后端配置无效')
   return {
     'Content-Type': contentType,
@@ -43,6 +44,27 @@ export function gatewayHandler(
       res.end(req.method === 'HEAD' ? undefined : `HTTP ${status}`)
     }
     try {
+      if ((req.url || '').startsWith('/cloud/v2/')) {
+        const origin = runtimeOrigin()
+        if (req.headers.host !== new URL(origin).host) {
+          fail(404)
+          return
+        }
+        const request = new Request(new URL(req.url!, origin), {
+          method: req.method,
+          headers: req.headers as Record<string, string>,
+          ...(!['GET', 'HEAD'].includes(req.method || 'GET')
+            ? { body: Readable.toWeb(req), duplex: 'half' }
+            : {}),
+        } as RequestInit)
+        const result = await sharedRuntimeHandler(
+          request,
+          req.socket.remoteAddress || 'unknown',
+        )
+        res.writeHead(result.status, Object.fromEntries(result.headers))
+        res.end(Buffer.from(await result.arrayBuffer()))
+        return
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.setHeader('Allow', 'GET, HEAD')
         fail(405)
@@ -82,13 +104,27 @@ export function gatewayHandler(
         }
         if (url.pathname === '/_pixloom/allow-domain') {
           const candidate = url.searchParams.get('domain') || ''
+          const runtimeHost = (() => {
+            try {
+              return new URL(runtimeOrigin()).hostname
+            } catch {
+              return ''
+            }
+          })()
+          const allowedRuntime =
+            candidate === runtimeHost &&
+            !['localhost', '127.0.0.1'].includes(runtimeHost)
           const site =
             config.enabled &&
             candidate.length < 254 &&
             candidate.endsWith('.' + config.domain)
               ? siteForDomain(candidate)
               : null
-          res.writeHead(site ? 200 : 403, { 'Cache-Control': 'no-store' }).end()
+          res
+            .writeHead(allowedRuntime || site ? 200 : 403, {
+              'Cache-Control': 'no-store',
+            })
+            .end()
           return
         }
         fail(404)
@@ -132,7 +168,14 @@ export function gatewayHandler(
         ...publishedHeaders(
           asset.contentType,
           immutable,
-          artifactManifest(artifactId)?.production.url,
+          (() => {
+            const manifest = artifactManifest(artifactId)
+            return manifest?.format === 'pixloom-cloud-v1'
+              ? manifest.production.url
+              : manifest?.format === 'pixloom-cloud-v2'
+                ? `${runtimeOrigin()}/cloud/v2/apps/${manifest.projectId}/environments/production/${manifest.generation}/`
+                : undefined
+          })(),
         ),
         'Content-Length': asset.body.length,
       })

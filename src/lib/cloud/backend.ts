@@ -7,6 +7,10 @@ import { applySchema, inspectSchema, schemaFromFiles } from './schema'
 import { deployFunctions } from './functions'
 import { cloudManifest, withCloudConfig } from './manifest'
 import type { CloudEnvironment, CloudManifest } from './types'
+import { sharedApp, sharedEnvironment } from './shared-store'
+import { applySharedSchema, ensureSharedEnvironment } from './shared-db'
+import { sharedClientSource } from './shared-client'
+import { CloudDefinitionError } from './errors'
 
 export function usesCloud(files: SourceFile[]) {
   return files.some(
@@ -34,14 +38,20 @@ export async function enableCloud(task: Task, execution: CloudExecution) {
   execution.check()
   task.candidateFiles = [
     ...task.candidateFiles.filter((file) => file.path !== CLOUD_CLIENT_PATH),
-    { path: CLOUD_CLIENT_PATH, content: cloudClientSource },
+    {
+      path: CLOUD_CLIENT_PATH,
+      content: sharedApp(task.projectId)
+        ? sharedClientSource
+        : cloudClientSource,
+    },
   ]
   return {
     ok: true,
     client: CLOUD_CLIENT_PATH,
     schema: 'src/pixloom-schema.json',
-    instruction:
-      '使用 cloud 客户端；每张表自带 id/owner_id/created_at，用户数据以 RLS 隔离。注册默认需要邮件确认。',
+    instruction: sharedApp(task.projectId)
+      ? '共享池后端：使用 cloud 客户端，登录界面注明“使用 Pixloom Cloud 账号登录”。支持登录、用户隔离的数据库和私有文件，不支持自定义服务端函数。注册后需要邮件确认，再返回原应用登录；会话仅在内存中保存，刷新需要重新登录。'
+      : '使用 cloud 客户端；每张表自带 id/owner_id/created_at，用户数据以 RLS 隔离。注册默认需要邮件确认。',
   }
 }
 export async function syncBackend(
@@ -52,7 +62,39 @@ export async function syncBackend(
   pinned?: CloudManifest,
 ) {
   if (!usesCloud(files)) return
+  if (sharedApp(projectId)) {
+    const app = sharedApp(projectId)!
+    if (
+      pinned &&
+      (pinned.format !== 'pixloom-cloud-v2' ||
+        pinned.projectId !== projectId ||
+        pinned.generation !== app.generation ||
+        sharedEnvironment(projectId, pinned.environment)?.id !==
+          pinned.environmentId)
+    )
+      throw new StoreError(
+        '版本绑定的 Cloud 资源已变化，拒绝部署到其他后端',
+        409,
+      )
+    if (files.some((file) => file.path.startsWith('src/backend/')))
+      throw new CloudDefinitionError(
+        '共享池暂不支持自定义服务端函数，请选择独立后端；不要将服务端功能移到浏览器',
+      )
+    await ensureSharedEnvironment(projectId, environment, execution)
+    await applySharedSchema(
+      projectId,
+      environment,
+      schemaFromFiles(files) || { tables: [], buckets: [] },
+      execution,
+    )
+    return
+  }
   const manifest = cloudManifest(projectId, files)
+  if (
+    manifest.format !== 'pixloom-cloud-v1' ||
+    (pinned && pinned.format !== 'pixloom-cloud-v1')
+  )
+    throw new StoreError('Cloud 版本绑定不匹配', 409)
   if (
     pinned &&
     (pinned.projectId !== projectId ||
@@ -73,7 +115,13 @@ export async function prepareCandidate(
   execution: CloudExecution,
 ) {
   if (!usesCloud(task.candidateFiles)) return assets
-  addEvent(task, '准备开发数据库、权限与后端函数', { type: 'build' })
+  addEvent(
+    task,
+    sharedApp(task.projectId)
+      ? '准备共享开发环境的数据库和访问权限'
+      : '准备开发数据库、权限与后端函数',
+    { type: 'build' },
+  )
   await syncBackend(
     task.projectId,
     task.candidateFiles,
@@ -87,12 +135,17 @@ export async function runCloudOperation(task: Task, execution: CloudExecution) {
     .prepare('SELECT input FROM cloud_operations WHERE taskId=?')
     .get(task.id) as { input: string } | undefined
   if (!row) throw new StoreError('缺少后端准备参数', 409)
-  addEvent(task, '准备独立开发与生产云资源；已有数据保留')
+  addEvent(task, '准备应用后端环境；已有数据保留')
   await prepareCloud(task.projectId, JSON.parse(row.input), {
     ...execution,
     waitMs: 90000,
   })
   execution.check()
-  addEvent(task, '云后端已就绪；后续生成可使用登录、数据库和服务端函数')
+  addEvent(
+    task,
+    sharedApp(task.projectId)
+      ? '共享开发环境已就绪；后续生成可使用登录、数据库和私有文件'
+      : '云后端已就绪；后续生成可使用登录、数据库和服务端函数',
+  )
 }
 export { inspectSchema }

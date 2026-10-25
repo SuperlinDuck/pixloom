@@ -71,6 +71,20 @@ export function db() {
     CREATE TABLE IF NOT EXISTS cloud_operations (taskId TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,input TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS cloud_test_accounts (taskId TEXT PRIMARY KEY REFERENCES tasks(id),projectId TEXT NOT NULL,ref TEXT NOT NULL,email TEXT NOT NULL UNIQUE,password TEXT NOT NULL,userId TEXT,status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS cloud_deployments (ref TEXT NOT NULL,kind TEXT NOT NULL,name TEXT NOT NULL,hash TEXT NOT NULL,updatedAt TEXT NOT NULL,PRIMARY KEY(ref,kind,name));
+    CREATE TABLE IF NOT EXISTS cloud_schema_versions (version INTEGER PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS cloud_pools (id TEXT PRIMARY KEY,environment TEXT NOT NULL,ref TEXT NOT NULL UNIQUE,createdAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_apps_v2 (projectId TEXT PRIMARY KEY REFERENCES projects(id),generation TEXT NOT NULL UNIQUE,status TEXT NOT NULL,error TEXT,createdAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_environments_v2 (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES cloud_apps_v2(projectId),environment TEXT NOT NULL,poolId TEXT NOT NULL REFERENCES cloud_pools(id),namespace TEXT NOT NULL UNIQUE,role TEXT NOT NULL UNIQUE,password TEXT NOT NULL,status TEXT NOT NULL,definition TEXT NOT NULL DEFAULT '{"tables":[],"buckets":[]}',hash TEXT,UNIQUE(projectId,environment));
+    CREATE TABLE IF NOT EXISTS cloud_operations_v2 (id TEXT PRIMARY KEY,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),hash TEXT NOT NULL,status TEXT NOT NULL,error TEXT,updatedAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_sessions_v2 (tokenHash TEXT PRIMARY KEY,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),generation TEXT NOT NULL,userId TEXT NOT NULL,email TEXT NOT NULL,tokens TEXT NOT NULL,expiresAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_browsers_v3 (tokenHash TEXT PRIMARY KEY,expiresAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_browser_sessions_v3 (browserHash TEXT NOT NULL REFERENCES cloud_browsers_v3(tokenHash) ON DELETE CASCADE,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),sessionHash TEXT NOT NULL REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,PRIMARY KEY(browserHash,environmentId));
+    CREATE TABLE IF NOT EXISTS cloud_access_tokens_v3 (tokenHash TEXT PRIMARY KEY,sessionHash TEXT NOT NULL REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,expiresAt INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS cloud_access_session_v3 ON cloud_access_tokens_v3(sessionHash);
+    CREATE TABLE IF NOT EXISTS cloud_refresh_leases_v3 (sessionHash TEXT PRIMARY KEY REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,owner TEXT NOT NULL,until INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_rates_v2 (key TEXT PRIMARY KEY,window INTEGER NOT NULL,count INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_tests_v2 (taskId TEXT PRIMARY KEY REFERENCES tasks(id),environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),email TEXT NOT NULL UNIQUE,password TEXT NOT NULL,userId TEXT,status TEXT NOT NULL);
+    INSERT OR IGNORE INTO cloud_schema_versions VALUES (2);
     PRAGMA user_version=3;
   `)
   if (

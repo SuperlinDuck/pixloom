@@ -8,6 +8,7 @@ import {
   Check,
   ChevronRight,
   Code2,
+  Copy,
   Download,
   ExternalLink,
   FileCode2,
@@ -107,6 +108,22 @@ function taskLabel(task: TaskSummary) {
         ? '正在保存版本'
         : '正在生成源码'
 }
+function taskReply(task: TaskSummary) {
+  if (!task.agent) return ''
+  if (task.status === 'cancelled') return '已停止本次生成。你可以继续描述需求。'
+  if (task.status !== 'completed') return ''
+  return (
+    [...task.events].reverse().find((event) => event.type === 'reply')
+      ?.message ||
+    [...task.events]
+      .reverse()
+      .find(
+        (event) =>
+          event.type === 'model' && !event.message.startsWith('模型第 '),
+      )?.message ||
+    '修改已完成，预览已更新。'
+  )
+}
 type Backup = { id: string; revision: number; createdAt: string }
 type Environment = {
   health: DockerHealth
@@ -143,6 +160,7 @@ export function Workspace() {
     [notice, setNotice] = useState(''),
     [summary, setSummary] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [projectName, setProjectName] = useState('')
   const conversationRef = useRef<HTMLDivElement>(null)
@@ -168,6 +186,12 @@ export function Workspace() {
     !!detail && !!draft && detail.draft.revision !== draft.revision
   const locked = busy || !!active || viewingHistory || conflict
   const ready = canAccess && !!status?.workerOnline
+
+  useEffect(() => {
+    if (!copiedTaskId) return
+    const timer = window.setTimeout(() => setCopiedTaskId(null), 2000)
+    return () => window.clearTimeout(timer)
+  }, [copiedTaskId])
 
   useEffect(() => {
     if (!canAccess) {
@@ -503,23 +527,43 @@ export function Workspace() {
       setTab('preview')
     })
   }
-  async function generate() {
+  async function copyTask(task: TaskSummary) {
+    try {
+      await navigator.clipboard.writeText(
+        [taskReply(task), task.error].filter(Boolean).join('\n\n'),
+      )
+      setCopiedTaskId(task.id)
+    } catch {
+      setError('复制失败，请检查浏览器剪贴板权限后重试。')
+    }
+  }
+  async function generate(retryTask?: TaskSummary) {
+    if (
+      retryTask &&
+      (retryTask.kind !== 'agent' ||
+        retryTask.status !== 'failed' ||
+        !retryTask.agent)
+    )
+      return
+    const requestPrompt = retryTask?.agent?.prompt || prompt.trim()
+    const requestProvider = retryTask?.agent?.provider || provider
     if (
       busy ||
       active ||
       viewingHistory ||
       conflict ||
-      !prompt.trim() ||
+      !requestPrompt ||
       !ready ||
-      !modelConfigured
+      !status?.models.find((model) => model.provider === requestProvider)
+        ?.configured
     )
       return
     followConversation.current = true
     await perform(async () => {
       if (!projectId) {
         const project = await api<Project>('/api/projects', {
-          prompt: prompt.trim(),
-          provider,
+          prompt: requestPrompt,
+          provider: requestProvider,
         })
         setProjects((list) => [project, ...list])
         setProjectId(project.id)
@@ -529,12 +573,12 @@ export function Workspace() {
       }
       const value = await saveDraft()
       await api(`${base}/tasks`, {
-        prompt: prompt.trim(),
-        provider,
+        prompt: requestPrompt,
+        provider: requestProvider,
         expectedRevision: value.revision,
         expectedVersionId: detail?.project.currentVersionId || null,
       })
-      setPrompt('')
+      if (!retryTask) setPrompt('')
       await refresh()
       setTab('preview')
     })
@@ -1016,6 +1060,49 @@ export function Workspace() {
                               </ol>
                             </div>
                           </details>
+                          {task.agent && !isActive(task) && (
+                            <div className="task-actions">
+                              {task.status === 'failed' && (
+                                <button
+                                  className="task-action"
+                                  type="button"
+                                  disabled={
+                                    locked ||
+                                    !ready ||
+                                    !draft ||
+                                    !status?.models.find(
+                                      (model) =>
+                                        model.provider === task.agent?.provider,
+                                    )?.configured
+                                  }
+                                  title="使用原需求和模型重新生成"
+                                  onClick={() => void generate(task)}
+                                >
+                                  <RefreshCw size={13} aria-hidden="true" />
+                                  重试
+                                </button>
+                              )}
+                              {(taskReply(task) || task.error) && (
+                                <button
+                                  className="task-action"
+                                  type="button"
+                                  title="复制回复"
+                                  onClick={() => void copyTask(task)}
+                                >
+                                  {copiedTaskId === task.id ? (
+                                    <Check size={13} aria-hidden="true" />
+                                  ) : (
+                                    <Copy size={13} aria-hidden="true" />
+                                  )}
+                                  <span role="status">
+                                    {copiedTaskId === task.id
+                                      ? '已复制'
+                                      : '复制'}
+                                  </span>
+                                </button>
+                              )}
+                            </div>
+                          )}
                           {isActive(task) && (
                             <button
                               className="task-cancel"
@@ -1032,58 +1119,14 @@ export function Workspace() {
                           )}
                         </div>
                         {task.agent && task.status === 'completed' && (
-                          <MarkdownReply>
-                            {[...task.events]
-                              .reverse()
-                              .find((event) => event.type === 'reply')
-                              ?.message ||
-                              [...task.events]
-                                .reverse()
-                                .find(
-                                  (event) =>
-                                    event.type === 'model' &&
-                                    !event.message.startsWith('模型第 '),
-                                )?.message ||
-                              '修改已完成，预览已更新。'}
-                          </MarkdownReply>
+                          <MarkdownReply>{taskReply(task)}</MarkdownReply>
                         )}
                         {task.agent && task.status === 'cancelled' && (
-                          <p className="summary-text">
-                            已停止本次生成。你可以继续描述需求。
-                          </p>
+                          <p className="summary-text">{taskReply(task)}</p>
                         )}
                         {task.error && (
                           <p className="task-error">{task.error}</p>
                         )}
-                        {task.kind === 'agent' &&
-                          ['failed', 'cancelled'].includes(task.status) && (
-                            <button
-                              className="text-button"
-                              disabled={locked || !draft}
-                              onClick={async () => {
-                                if (
-                                  dirty &&
-                                  !(await ask(
-                                    '载入候选源码将覆盖本页未保存编辑，是否继续？',
-                                  ))
-                                )
-                                  return
-                                void perform(async () => {
-                                  const value = await api<{
-                                    files: SourceFile[]
-                                  }>(`/api/tasks/${task.id}?candidate=1`)
-                                  setFiles(value.files)
-                                  setSelected(null)
-                                  setTab('code')
-                                  setNotice(
-                                    '候选源码已载入编辑器，保存草稿后可手动构建或继续 AI 修改',
-                                  )
-                                })
-                              }}
-                            >
-                              载入候选源码
-                            </button>
-                          )}
                       </article>
                     </Fragment>
                   ))}

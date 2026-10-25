@@ -20,7 +20,7 @@ function addEvent(
 }
 
 export const AGENT_LIMITS = {
-  steps: 24,
+  steps: 100,
   toolCalls: 80,
   outputTokens: 48000,
   responseBytes: 1024 * 1024,
@@ -321,5 +321,7 @@ export async function runCodingAgent(
       })
     }
   }
-  throw new Error('Coding Agent 已达到最大 24 步，候选源码保留在任务中')
+  throw new Error(
+    `Coding Agent 已达到最大 ${AGENT_LIMITS.steps} 步，候选源码保留在任务中`,
+  )
 }

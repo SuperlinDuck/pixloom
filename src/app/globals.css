@@ -800,6 +800,25 @@ h1 > span {
   flex: 1;
   min-width: 0;
 }
+.task-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.task-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 3px 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.task-action:hover:not(:disabled) {
+  color: var(--ink);
+}
 .task-state {
   display: inline-flex;
   align-items: center;

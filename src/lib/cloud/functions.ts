@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { StoreError, db } from '../store'
 import type { SourceFile } from '../types'
 import { supabaseRequest } from './api'
+import { sharedApp } from './shared-store'
 import { managementToken, type CloudExecution } from './provision'
 import { resource } from './store'
 import { projectOrigin } from './config'
@@ -53,6 +54,10 @@ export async function deployFunctions(
   execution: CloudExecution,
 ) {
   const functions = appFunctions(files)
+  if (sharedApp(projectId) && functions.length)
+    throw new CloudDefinitionError(
+      '共享池暂不支持自定义服务端函数，请选择独立后端',
+    )
   if (!functions.length) return {}
   const row = resource(projectId, environment)
   if (!row.ref || !row.publishableKey || row.status !== 'ready')

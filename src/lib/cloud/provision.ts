@@ -15,6 +15,8 @@ import {
 } from './store'
 import { listSupabaseProjects, publicKey, supabaseRequest } from './api'
 import type { CloudResource, SupabaseProject } from './types'
+import { sharedApp } from './shared-store'
+import { ensureSharedEnvironment } from './shared-db'
 
 export async function managementToken(projectId: string, signal?: AbortSignal) {
   const row = binding(projectId)
@@ -34,6 +36,15 @@ export async function prepareCloud(
   execution: CloudExecution,
 ) {
   execution.check()
+  if (
+    input.mode === 'managed' &&
+    (sharedApp(projectId) ||
+      (!binding(projectId) &&
+        process.env.PIXLOOM_CLOUD_LEGACY_PROVISIONING !== '1'))
+  ) {
+    await ensureSharedEnvironment(projectId, 'development', execution)
+    return
+  }
   const bound = reserveBinding(projectId, input)
   setBindingState(projectId, 'provisioning')
   try {

@@ -8,10 +8,7 @@ export function runtimePreviewHeaders(
 ) {
   const origin = workspaceRequestOrigin(request)
   if (!origin) throw new RuntimeError('预览地址未获允许', 403)
-  if (
-    backendOrigin &&
-    !/^https:\/\/[a-z]{20}\.supabase\.co$/.test(backendOrigin)
-  )
+  if (backendOrigin && !validCloudEndpoint(backendOrigin))
     throw new RuntimeError('Cloud 预览端点无效', 403)
   const previewPath =
     new URL(request.url).pathname.match(
@@ -28,5 +25,25 @@ export function runtimePreviewHeaders(
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'no-referrer',
     'Cache-Control': 'no-store',
+  }
+}
+export function validCloudEndpoint(value: string) {
+  if (/^https:\/\/[a-z]{20}\.supabase\.co$/.test(value)) return true
+  try {
+    const url = new URL(value)
+    return (
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      (url.protocol === 'https:' ||
+        (url.protocol === 'http:' &&
+          ['127.0.0.1', 'localhost'].includes(url.hostname))) &&
+      /^\/cloud\/v2\/apps\/[a-f0-9-]{36}\/environments\/(development|production)\/[a-f0-9-]{36}\/$/.test(
+        url.pathname,
+      )
+    )
+  } catch {
+    return false
   }
 }

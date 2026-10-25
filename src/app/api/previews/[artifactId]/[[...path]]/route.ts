@@ -1,4 +1,4 @@
-import { artifactManifest } from '@/lib/cloud/manifest'
+import { artifactManifest, manifestEndpoint } from '@/lib/cloud/manifest'
 import { previewAsset, StoreError } from '@/lib/store'
 import { runtimePreviewHeaders } from '@/lib/runtime/preview'
 import { errorResponse } from '@/lib/http'
@@ -19,7 +19,7 @@ export async function GET(
       headers: runtimePreviewHeaders(
         request,
         asset.contentType,
-        artifactManifest(params.artifactId)?.development.url,
+        manifestEndpoint(artifactManifest(params.artifactId)),
       ),
     })
   } catch (e) {
