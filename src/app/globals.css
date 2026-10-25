@@ -198,12 +198,6 @@ select {
   overflow: auto;
   min-height: 80px;
 }
-.no-projects {
-  font-size: 12px;
-  line-height: 1.9;
-  color: #7d7d7d;
-  margin: 8px 14px;
-}
 .project-link {
   display: flex;
   align-items: center;
@@ -221,9 +215,15 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.project-link:hover:not(:disabled) {
+  background: #eaeaea;
+}
 .project-link.active {
   background: #e3e3e3;
   color: #333333;
+}
+.project-link.active:hover:not(:disabled) {
+  background: #dadada;
 }
 .workspace-account {
   position: relative;
@@ -868,6 +868,10 @@ h1 > span {
 .task-progress {
   flex: 1;
   min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e8e4dd;
+  border-radius: 12px;
+  background: #f3f1ed;
 }
 .task-latest-progress {
   margin-top: 4px;
@@ -891,8 +895,10 @@ h1 > span {
 .task-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
-  flex-shrink: 0;
+  margin-top: 10px;
 }
 .task-action {
   display: inline-flex;
@@ -942,7 +948,6 @@ h1 > span {
   color: #b26755;
 }
 .task-cancel {
-  margin-left: auto;
   min-height: 28px;
   padding: 3px 0;
   font-size: 12px;

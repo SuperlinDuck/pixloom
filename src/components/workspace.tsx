@@ -817,7 +817,6 @@ function WorkspaceSession({
               <span>{p.name}</span>
             </button>
           ))}
-          {!projects.length && <p className="no-projects">从一句想法开始。</p>}
         </div>
         <div className="sidebar-bottom">
           <WorkspaceAccount
@@ -1030,60 +1029,6 @@ function WorkspaceSession({
                         </div>
                         <div className="task-status-row">
                           <TaskProgress task={task} label={taskLabel(task)} />
-                          {task.agent && !isActive(task) && (
-                            <div className="task-actions">
-                              {task.status === 'failed' && (
-                                <button
-                                  className="task-action"
-                                  type="button"
-                                  disabled={
-                                    locked ||
-                                    !aiReady ||
-                                    !draft ||
-                                    !modelConfigured
-                                  }
-                                  title="使用原需求通过 Gemini 重新生成"
-                                  onClick={() => void generate(task)}
-                                >
-                                  <RefreshCw size={13} aria-hidden="true" />
-                                  重试
-                                </button>
-                              )}
-                              {(taskReply(task) || task.error) && (
-                                <button
-                                  className="task-action"
-                                  type="button"
-                                  title="复制回复"
-                                  onClick={() => void copyTask(task)}
-                                >
-                                  {copiedTaskId === task.id ? (
-                                    <Check size={13} aria-hidden="true" />
-                                  ) : (
-                                    <Copy size={13} aria-hidden="true" />
-                                  )}
-                                  <span role="status">
-                                    {copiedTaskId === task.id
-                                      ? '已复制'
-                                      : '复制'}
-                                  </span>
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          {isActive(task) && (
-                            <button
-                              className="task-cancel"
-                              type="button"
-                              onClick={() =>
-                                void perform(async () => {
-                                  await api(`/api/tasks/${task.id}/cancel`, {})
-                                  await refresh()
-                                })
-                              }
-                            >
-                              取消
-                            </button>
-                          )}
                         </div>
                         {task.agent && task.status === 'completed' && (
                           <MarkdownReply>{taskReply(task)}</MarkdownReply>
@@ -1093,6 +1038,67 @@ function WorkspaceSession({
                         )}
                         {task.error && (
                           <p className="task-error">{task.error}</p>
+                        )}
+                        {(task.agent || isActive(task)) && (
+                          <footer className="task-actions">
+                            {task.agent && !isActive(task) && (
+                              <>
+                                {task.status === 'failed' && (
+                                  <button
+                                    className="task-action"
+                                    type="button"
+                                    disabled={
+                                      locked ||
+                                      !aiReady ||
+                                      !draft ||
+                                      !modelConfigured
+                                    }
+                                    title="使用原需求通过 Gemini 重新生成"
+                                    onClick={() => void generate(task)}
+                                  >
+                                    <RefreshCw size={13} aria-hidden="true" />
+                                    重试
+                                  </button>
+                                )}
+                                {(taskReply(task) || task.error) && (
+                                  <button
+                                    className="task-action"
+                                    type="button"
+                                    title="复制回复"
+                                    onClick={() => void copyTask(task)}
+                                  >
+                                    {copiedTaskId === task.id ? (
+                                      <Check size={13} aria-hidden="true" />
+                                    ) : (
+                                      <Copy size={13} aria-hidden="true" />
+                                    )}
+                                    <span role="status">
+                                      {copiedTaskId === task.id
+                                        ? '已复制'
+                                        : '复制'}
+                                    </span>
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {isActive(task) && (
+                              <button
+                                className="task-cancel"
+                                type="button"
+                                onClick={() =>
+                                  void perform(async () => {
+                                    await api(
+                                      `/api/tasks/${task.id}/cancel`,
+                                      {},
+                                    )
+                                    await refresh()
+                                  })
+                                }
+                              >
+                                取消
+                              </button>
+                            )}
+                          </footer>
                         )}
                       </article>
                     </Fragment>
@@ -1108,7 +1114,7 @@ function WorkspaceSession({
                 >
                   <textarea
                     aria-label="应用需求"
-                    placeholder="创建待办应用，或增加分类筛选…"
+                    placeholder="描述你想调整的地方，或继续补充需求…"
                     value={prompt}
                     maxLength={8000}
                     disabled={locked || !draft}

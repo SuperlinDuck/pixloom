@@ -110,7 +110,7 @@ export async function runCodingAgent(
     check()
     lastOutput = report.ok
       ? report.output.slice(-16000)
-      : `自动测试告警（不阻塞生成）：\n${report.output.slice(-16000)}`
+      : `自动测试告警\n${report.output.slice(-16000)}`
     addEvent(task, lastOutput, { type: 'validation' })
     if (!report.ok) {
       state.validationFailures = (state.validationFailures || 0) + 1
@@ -283,7 +283,8 @@ export async function runCodingAgent(
       state.responseBytes > AGENT_LIMITS.responseBytes
     )
       throw new Error('Coding Agent 输出预算已用尽')
-    if (turn.text) addEvent(task, turn.text.slice(0, 4000), { type: 'model' })
+    if (turn.text && turn.calls.length)
+      addEvent(task, turn.text.slice(0, 4000), { type: 'model' })
     if (!turn.calls.length) {
       if (!turn.text.trim()) throw new Error('模型没有返回工具调用或完成说明')
       if (

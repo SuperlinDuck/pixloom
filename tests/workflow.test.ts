@@ -1010,6 +1010,9 @@ describe('coding agent workspace loop', () => {
     expect(getTask(task.id).events).toContainEqual(
       expect.objectContaining({ type: 'reply', message: '完成' }),
     )
+    expect(getTask(task.id).events).not.toContainEqual(
+      expect.objectContaining({ type: 'model', message: '完成' }),
+    )
   })
   it('stops testing after three durable failures and still updates the version and preview', async () => {
     const { project, runtime, version } = await initialize()

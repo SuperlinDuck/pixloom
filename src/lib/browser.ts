@@ -346,6 +346,6 @@ export const verifyBrowser: BrowserVerifier = async (
     completedSteps,
     output: errors.length
       ? `浏览器验证失败（完成 ${completedSteps}/${steps.length} 步）：\n${errors.join('\n')}`
-      : `浏览器验证通过：页面加载无异常，${completedSteps} 个行为步骤通过（仅覆盖这些步骤）`,
+      : `浏览器验证通过：页面加载无异常${completedSteps ? `，${completedSteps} 个行为步骤通过` : ''}`,
   }
 }

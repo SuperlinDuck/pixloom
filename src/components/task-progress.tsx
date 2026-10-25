@@ -51,7 +51,7 @@ function eventPresentation(event: TaskEvent) {
           ? ListChecks
           : event.type === 'ready'
             ? Check
-            : event.type === 'model' || event.type === 'reply'
+            : event.type === 'model'
               ? MessageSquare
               : Terminal,
     text: event.message,
@@ -64,7 +64,10 @@ function EventLine({ event }: { event: TaskEvent }) {
     <>
       <Icon className="task-event-icon" size={14} aria-hidden="true" />
       <span className="task-event-text" title={text}>
-        {text.split('\n')[0]}
+        {text
+          .split('\n')[0]
+          .trimEnd()
+          .replace(/[：:]$/, '')}
       </span>
     </>
   )
@@ -77,8 +80,27 @@ export function TaskProgress({
   task: TaskSummary
   label: string
 }) {
+  const reply = [...task.events]
+    .reverse()
+    .find((event) => event.type === 'reply' && event.message.trim())
+  // Older tasks also recorded their final answer as a model event.
+  const finalModel = [...task.events]
+    .reverse()
+    .find(
+      (event) =>
+        event.type === 'model' &&
+        event.message.trim() &&
+        (reply
+          ? reply.message === event.message ||
+            reply.message.startsWith(`${event.message}\n\n自动测试提示：`)
+          : task.agent &&
+            task.status === 'completed' &&
+            !event.message.startsWith('模型第 ')),
+    )
   const events = task.events.filter(
     (event) =>
+      event.type !== 'reply' &&
+      event !== finalModel &&
       event.message.trim() &&
       !/^模型第\s*\d+\s*\/\s*\d+\s*步(?:\s|·|$)/.test(event.message.trim()),
   )
@@ -111,7 +133,7 @@ export function TaskProgress({
             <ol aria-label="执行记录">
               {events.map((event, index) => (
                 <li key={index}>
-                  {event.type === 'model' || event.type === 'reply' ? (
+                  {event.type === 'model' ? (
                     <div className="task-progress-note">
                       <MarkdownReply>{event.message}</MarkdownReply>
                     </div>
@@ -143,7 +165,7 @@ export function TaskProgress({
       </details>
       {active && latest && (
         <div className="task-latest-progress" role="status">
-          {latest.type === 'model' || latest.type === 'reply' ? (
+          {latest.type === 'model' ? (
             <p className="task-latest-note" title={latest.message}>
               {latest.message}
             </p>
