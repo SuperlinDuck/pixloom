@@ -399,18 +399,38 @@ async function main() {
       .click()
     await page.waitForURL(`${origin}/projects/${secondProject.id}`)
     await selectProject(project.name)
+    await page.waitForURL(`${origin}${projectPath}`)
+    assert.deepEqual(await page.locator('.tabs button').allTextContents(), [
+      '预览',
+      '源码',
+      '差异',
+      '发布',
+    ])
     for (const [label, suffix] of [
-      ['环境', 'runtime'],
-      ['云后端', 'cloud'],
-      ['发布', 'publish'],
+      ['预览', ''],
+      ['源码', '/code'],
+      ['差异', '/diff'],
+      ['发布', '/publish'],
     ]) {
       await page.getByRole('button', { name: label, exact: true }).click()
-      await page.waitForURL(`${origin}${projectPath}/${suffix}`)
+      await page.waitForURL(`${origin}${projectPath}${suffix}`)
       await page.reload()
       await page
         .locator('.tabs button.active')
         .filter({ hasText: label })
         .waitFor()
+    }
+    // These views remain addressable through existing links, without toolbar tabs.
+    for (const [suffix, heading] of [
+      ['runtime', '执行环境'],
+      ['cloud', '云后端'],
+    ]) {
+      const url = `${origin}${projectPath}/${suffix}`
+      assert.equal((await page.goto(url))!.status(), 200)
+      await page.getByRole('heading', { name: heading, exact: true }).waitFor()
+      assert.equal((await page.reload())!.status(), 200)
+      await page.waitForURL(url)
+      await page.getByRole('heading', { name: heading, exact: true }).waitFor()
     }
     await page.getByRole('button', { name: '源码', exact: true }).click()
     await page.getByRole('button', { name: '版本历史', exact: true }).click()
