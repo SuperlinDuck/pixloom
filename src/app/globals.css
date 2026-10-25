@@ -3580,3 +3580,52 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+.standalone-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: white;
+}
+
+.invitation-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.invitation-form label,
+.account-usage {
+  font-size: 12px;
+  color: var(--muted, #888);
+}
+.invitation-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #5555;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+}
+.account-usage {
+  margin-top: 10px;
+  line-height: 1.5;
+}
+.account-usage p {
+  margin: 3px 0;
+  overflow-wrap: anywhere;
+}
+.preview-canvas {
+  position: relative;
+}
+.preview-access-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: var(--background, #161616);
+  text-align: center;
+}

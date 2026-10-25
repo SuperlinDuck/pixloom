@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { versionSummaries } from '@/lib/store'
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireProjectUser(request, params.id)
     const query = new URL(request.url).searchParams
     const before = z.coerce
       .number()

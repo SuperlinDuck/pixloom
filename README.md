@@ -1,6 +1,6 @@
 # Pixloom
 
-本地 React/Vite 多文件工作空间：编辑源码、构建预览、查看差异并恢复历史版本。当前为 **v0.3 本地单用户原型**，已接入 Gemini / GPT Coding Agent 工具循环。
+React/Vite 多文件工作空间：编辑源码、构建预览、查看差异并恢复历史版本。支持本地开发与单机 VPS 邀请内测，已接入 Gemini / GPT Coding Agent 工具循环。生产步骤见 [VPS 部署与运维](docs/vps-deployment.md)。
 
 ## 启动
 
@@ -28,7 +28,7 @@ pnpm dev
 2. 添加授权重定向 URI：`http://127.0.0.1:3000/api/auth/callback/google`。
 3. 在 `.env.local` 填写 `PIXLOOM_GOOGLE_CLIENT_ID`、`PIXLOOM_GOOGLE_CLIENT_SECRET` 和 `PIXLOOM_AUTH_URL=http://127.0.0.1:3000`，重启 Web。使用其他本机地址或端口时，同步修改应用地址及 Google 回调地址；不要混用 `localhost` 与 `127.0.0.1`。使用 Whistle 代理 `https://pixloom.io` 时，`PIXLOOM_AUTH_URL` 只填 `https://pixloom.io`，Google 回调填写 `https://pixloom.io/api/auth/callback/google`；不要把回调路径填入 `PIXLOOM_AUTH_URL`，也不要混用带 `www` 和不带 `www` 的域名。
 
-首次成功登录的 Google 账号绑定整个现有工作空间，后续其他账号不能登录。这里仍是本机单工作空间，不提供多用户租户隔离。完全未配置凭证时沿用本机访客模式；填写任意凭证后，项目、源码、任务、版本、导出和发布操作都要求登录，配置不完整时拒绝访问。不可变预览资源仍可通过随机产物 ID 读取，以兼容隔离 iframe；预览链接不应视作私有资源。工作台允许本机 Host 和 `PIXLOOM_AUTH_URL` 明确配置的来源，支持 Whistle 在 HTTPS 域名与本机 HTTP 服务之间转发；仍不能直接作为公网多用户平台部署。
+用户登录后兑换邀请码开通体验，项目、源码、任务、版本、导出、发布和 Cloud 管理按用户授权，自有 Supabase 连接也按用户隔离。`PIXLOOM_ADMIN_EMAILS` 指定管理员，旧本地账号和项目迁移给原管理员；本地未指定时首个账号为管理员。只有本地开发可在完全未配置凭证时使用访客模式，生产缺失登录配置时拒绝启动。私有预览通过所有者授权和十五分钟资源凭证兼容 opaque iframe，可信外层自动续期；退出或停用后凭证失效。公开发布站点及其应用登录独立于工作台账号。工作台允许本机 Host 和 `PIXLOOM_AUTH_URL` 明确配置的来源。邀请码、额度和上线验收见 [部署文档](docs/vps-deployment.md)。
 
 认证流程遵循 [Google OpenID Connect 服务端流程](https://developers.google.com/identity/openid-connect/openid-connect)，校验一次性 state、PKCE、nonce、签名、受众和到期时间，仅请求姓名、邮箱和头像，不保存 Google access token / refresh token。
 
@@ -44,6 +44,8 @@ pnpm dev
 8. 右上角**导出交付包**下载当前查看版本的 ZIP，包含源码、独立静态站点、版本清单及运行说明。查看历史时导出该历史版本，不包含草稿修改；无需 Worker 或容器在线。详见 [交付链路](docs/delivery.md)。
 9. **发布**页支持上线指定版本、回滚历史发布及下线。Worker 校验持久化产物后切换线上指针，独立网关按项目域名提供站点，Caddy 负责公网 HTTPS。配置见 [自动发布](docs/publishing.md)。
 
+独立预览使用 `/preview/:artifactId` 可信外层页面，在其中运行沙箱产物并恢复应用登录；`/api/previews/...` 继续作为原始资源地址。已有应用需通过 `cloud_enable` 更新平台 Cloud 客户端并构建新版本以启用持久登录，旧产物保持不可变。
+
 版本预览绑定持久化构建产物，不受下一次构建失败影响。可以重新构建某个版本的预览，不增加源码版本；要求模板镜像摘要与该版本一致。历史版本恢复可直接复用其原有产物，不必调用模型或重新构建。
 
 ## 云后端：共享资源池与自有 Supabase
@@ -52,7 +54,7 @@ pnpm dev
 
 管理员按 [.env.example](.env.example) 配置 `PIXLOOM_CLOUD_ENCRYPTION_KEY`、`PIXLOOM_CLOUD_RUNTIME_URL` 和 `PIXLOOM_CLOUD_DEV_*` / `PIXLOOM_CLOUD_PROD_*`。开发池配置完整即可开发；生产池可稍后配置。详细步骤见 [共享池配置与运维](docs/cloud-shared.md)。共享模式无需 Management API Token、组织标识和旧的 `PIXLOOM_CLOUD_MAX_PROJECTS`；应用数量取决于池总容量和平台配额。
 
-Engineer 使用同一套 `cloud_enable`、`cloud_schema`、`cloud_test_account` 工具。`src/pixloom-schema.json` 定义用户所属的数据表和逻辑私有存储桶；构建同步开发结构，发布同步生产结构；迁移只添加表/列，代码回滚不回滚业务数据。登录界面说明“使用 Pixloom Cloud 账号登录”：同一环境池共用身份提供方，应用成员和数据分别授权；会话保存在内存，刷新需重新登录。共享模式暂不支持自定义服务端函数，需要此能力可为新应用选择 **自有 Supabase**。
+Engineer 使用同一套 `cloud_enable`、`cloud_schema`、`cloud_test_account` 工具。`src/pixloom-schema.json` 定义用户所属的数据表和逻辑私有存储桶；构建同步开发结构，发布同步生产结构；迁移只添加表/列，代码回滚不回滚业务数据。登录界面说明“使用 Pixloom Cloud 账号登录”：同一环境池共用身份提供方，应用成员和数据分别授权。新版客户端通过可信预览入口和发布站点固定保持登录 7 天，刷新和正常重开浏览器自动恢复；主动退出会在服务端立即撤销。Supabase 凭证加密保存在服务端，应用仅持有内存中的短期访问凭证。共享模式暂不支持自定义服务端函数，需要此能力可为新应用选择 **自有 Supabase**。
 
 自有模式通过 OAuth 绑定两个独立项目，需另配 `PIXLOOM_SUPABASE_CLIENT_ID`、`PIXLOOM_SUPABASE_CLIENT_SECRET`；回调为 `<工作台来源>/api/cloud/supabase/callback`。已有 v1 独立托管资源继续使用原绑定，不自动合并、删除或接管。兼容配置见 [独立后端文档](docs/cloud.md)，后续设计见 [Cloud v2](docs/cloud-v2.md)。
 
@@ -64,7 +66,7 @@ Engineer 使用同一套 `cloud_enable`、`cloud_schema`、`cloud_test_account` 
 
 Agent 可以列出、读取和搜索候选源码，完整写入、精确编辑或删除文件，运行固定构建并读取错误。每次成功构建后自动检查预览加载、页面异常与控制台错误；Agent 还必须通过 `browser_test` 操作和断言所请求功能，才能创建 AI 版本。浏览器失败会反馈给 Agent 修复，源码变化后须重新验证。失败或取消时保留原草稿、版本和预览，候选源码保存在任务中。失败消息提供“重试”，使用原需求和模型、基于当前草稿创建新任务；重试不会清空输入框中尚未发送的内容。回复和错误信息可通过“复制”按钮复制，对话中不展示候选源码载入入口。
 
-每个任务最多 100 次模型请求、80 次工具调用、48,000 输出 tokens（包含模型报告的推理用量），单次最多 24,000 tokens、累计 1 MiB 模型响应、5 分钟总执行时间，以及三次失败构建和三次失败浏览器验证（各两轮修复）。步骤、用量、候选源码、失败计数与开始时间持久化；重启从候选源码开始新模型会话，沿用剩余预算。被中断的在途请求保留输出预算预留，避免重启绕过上限。用量以模型实际返回为准，不是账单核对。
+每个任务最多 100 次模型请求、80 次工具调用、48,000 输出 tokens（包含模型报告的推理用量），单次最多 24,000 tokens、累计 1 MiB 模型响应、5 分钟总执行时间，以及三次失败构建和三次失败浏览器验证（各两轮修复）。步骤、用量、候选源码、失败计数与开始时间持久化；重启从候选源码开始新模型会话，沿用剩余预算。被中断的在途请求保留输出预算预留，避免重启绕过上限。用户额度另由持久账本控制：每次实际模型尝试（含重试）先预留预算，收到有效 usage 后结算，不确定结果保留预留供管理员核对。用户和平台每日总预算不会因重启重置。用量不是供应商账单核对。
 
 受限预览禁用原生表单提交与同源存储。生成指令要求通过 `type="button"` / `onClick` 处理应用操作，并在 localStorage 不可用时回退内存；纯前端内存数据不保证刷新后保留；已连接 Cloud 的业务数据由数据库持久保存。
 
@@ -84,15 +86,15 @@ pnpm agent:verify --live --provider=gemini  # 真实模型 + Docker，两轮生�
 
 AI 任务优先使用 Playwright Chromium，先执行 `pnpm browser:install`；未安装时自动尝试本机 Google Chrome。也可在 `.env.local` 设置 `PIXLOOM_BROWSER_CHANNEL=chrome`，使用已安装的 Google Chrome；仍启动独立临时 profile，不读取个人浏览器数据。环境不可用时任务明确失败，不跳过验证保存版本。安装后需重启 Worker。
 
-候选构建产物仅在验证进程中提供，尚未发布为当前版本。浏览器使用与正式预览相同的 iframe sandbox 和 CSP；请求拦截只提供本次产物，不连接工作台、其他项目或外部网络。每次调用启动全新浏览器，测试结束或任务取消后关闭；浏览器进程不继承模型凭证。当前在宿主运行无头浏览器，不提供容器级浏览器资源配额。
+候选构建产物仅在验证进程中提供，尚未发布为当前版本。浏览器使用与正式预览相同的 iframe sandbox 和 CSP；请求拦截只提供本次产物，不连接工作台、其他项目或外部网络。每次调用启动全新浏览器，测试结束或任务取消后关闭；浏览器进程不继承模型凭证。当前在宿主运行无头浏览器，生产 systemd Worker cgroup 同时限制 Chromium 子进程资源。
 
-`browser_test` 支持有界的点击、输入、选择、按键、勾选与内容/数量/可见性/值断言，禁止任意 JavaScript、URL 跳转和 Shell。每次最多 30 步、25 秒执行时间（启动另限 10 秒）；必须包含断言。步骤、完成数量及错误写入任务事件，工作台显示生成、构建、验证和保存阶段。测试从空白内存状态开始；重启后沿用失败次数，但对候选产物重新构建与验证。
+`browser_test` 支持有界的点击、输入、选择、按键、勾选与内容/数量/可见性/值断言，禁止任意 JavaScript、URL 跳转和 Shell。每次最多 30 步，普通页面 25 秒、Cloud 应用 60 秒执行时间（启动另限 10 秒）；必须包含断言。共享 Cloud 使用与工作台相同的可信认证消息通道，每轮仍使用独立浏览器环境。步骤、完成数量及错误写入任务事件，工作台显示生成、构建、验证和保存阶段。测试从空白内存状态开始；重启后沿用失败次数，但对候选产物重新构建与验证。
 
 ## 数据与版本边界
 
 新结构使用 `.pixloom/pixloom-v3.db`，包含草稿、版本、任务、构建资源和草稿备份。通过 `PIXLOOM_DATA_DIR` 修改数据目录；Web、Worker 和脚本必须指向同一目录。
 
-**旧单文件 HTML 模式已移除，不迁移旧数据和接口。** 原来的 `.pixloom/pixloom.db` 不会被自动删除或修改。SQLite 备份前应停止 Web 与 Worker，再复制整个数据目录（包含可能存在的 WAL 文件）。
+**旧单文件 HTML 模式已移除，不迁移旧数据和接口。** 原来的 `.pixloom/pixloom.db` 不会被自动删除或修改。SQLite 冷备前应停止 Web、Worker 和 Gateway，再复制整个数据目录（包含可能存在的 WAL 文件）。网关也会写入 Cloud 会话；发布目录、配置密钥和 Supabase 数据需分别覆盖。
 
 首版沿用固定 JSX/JS 模板与镜像内依赖，只允许 `index.html` 和 `src/` 下白名单源码，不支持修改 npm 依赖、构建配置、隐藏文件或任意 Shell。单文件 128 KiB、最多 64 个文件、源码合计 1 MiB；构建资源单个 2 MiB、合计 8 MiB、最多 128 个；项目源码快照和产物等受 128 MiB 存储预算限制，超限明确报错，不自动删除版本。
 
@@ -107,6 +109,7 @@ pnpm cloud:verify      # 确定性上游 + 真实 Chromium：两种模式的应�
 pnpm cloud:verify-runtime # 确定性模型与上游 + 真实 Docker/Vite/浏览器完整生成
 pnpm cloud:verify-shared # 独立 PostgreSQL + Docker/Vite + Chromium：共享池隔离、两应用生成发布、恢复/删除
 pnpm cloud:verify-db   # 独立 PostgreSQL 测试容器：迁移、RLS、存储权限与数据保留
+pnpm invite:verify    # 先 build：独立 Web + Chromium，邀请码/租户/私有预览，不调用真实上游
 pnpm typecheck
 pnpm build
 pnpm sandbox:doctor
@@ -122,10 +125,11 @@ pnpm publish:verify    # 临时数据库 + Docker + 真实 Caddy + 发布/更新
 
 已提供对话生成入口和模板/手工编辑闭环。当前工具循环完成确定性回归、Docker 验证和 Gemini 两轮真实生成及浏览器交互验收；自动浏览器反馈修复循环已接入；GPT 真实调用尚未验收。
 
-预览使用受限 sandbox iframe 与 CSP，静态版本禁止外部网络，Cloud 版本仅允许绑定后端；均禁止原生表单提交、弹窗及访问工作台。手工构建仅验证编译；AI 任务的浏览器测试只覆盖给定断言，不保证所有需求均正确。已实现单机静态自动发布与 Caddy 接入；已增加双模式 Supabase 后端集成；尚无 HMR、GitHub 同步、多分支、通用应用服务器托管和多用户租户授权。
+预览使用受限 sandbox iframe 与 CSP，静态版本禁止外部网络，Cloud 版本仅允许绑定后端；均禁止原生表单提交、弹窗及访问工作台。手工构建仅验证编译；AI 任务的浏览器测试只覆盖给定断言，不保证所有需求均正确。已实现单机静态自动发布与 Caddy 接入；已增加双模式 Supabase 后端集成；尚无 HMR、GitHub 同步、多分支和通用应用服务器托管；当前租户授权以项目所有者为单位，不含团队协作。
 
-Web 默认绑定 `127.0.0.1`，API 只接受本机 Host 并拒绝跨站平台请求；仅预览 GET 资源允许 opaque-origin iframe 加载。当前工作台保持本机/SSH 隧道访问，Caddy 只公开独立发布网关，不反向代理工作台。
+Web 默认绑定 `127.0.0.1`，API 允许本机及明确配置的工作台来源，并拒绝跨站管理请求；受限预览以短期资源凭证兼容 opaque iframe。生产由 Caddy 公开 HTTPS 工作台与独立应用网关，内部端口不对外开放。Worker 定期回收空闲容器，已有静态预览不受影响。
 
+- [VPS 邀请内测部署与运维](docs/vps-deployment.md)
 - [共享池配置与运维](docs/cloud-shared.md)
 - [独立后端与自有 Supabase](docs/cloud.md)
 - [下一步实施计划](docs/roadmap.md)

@@ -40,11 +40,19 @@ PIXLOOM_CLOUD_LEGACY_PROVISIONING=0
 
 - 同一池共用一套 Supabase Auth 账号体系，界面说明“使用 Pixloom Cloud 账号登录”。应用成员和数据权限分别维护，开发池与生产池账号体系相互独立。
 - 用户在新应用输入正确邮箱/密码登录后才加入该应用；注册请求不会仅凭邮箱创建成员关系。默认需邮件验证；验证完成后返回原应用登录，也可使用 `cloud.verifyOtp(email,token)` 验证邮件验证码。邮件模板、发送额度和 SMTP 在 Supabase 池项目中统一配置。
-- 网关返回仅用于当前应用、环境和绑定代次的随机会话；Supabase access/refresh token 加密保存在平台 SQLite，不发送给应用。会话固定一小时，刷新页面或到期后重新登录；退出只撤销此应用会话，不影响其他应用。
+- 网关返回仅用于当前应用、环境和绑定代次的随机会话；Supabase access/refresh token 加密保存在平台 SQLite，不发送给应用。新版客户端通过可信预览入口或发布站点固定保持登录 7 天，从登录成功时计算，不因使用或续期顺延。刷新和正常重开浏览器自动恢复；退出立即撤销当前浏览器、当前应用环境的会话及全部短期访问凭证，其他应用、环境和设备不受影响。旧客户端保留原一小时内存会话行为。
 - 数据经有限 Gateway 操作进入数据库。每个应用使用独立非 owner 登录角色，没有创建表、绕过 RLS、读取私有成员表或访问其他应用 schema 的权限。事务设置可信用户上下文，强制 owner RLS；提交/回滚清除上下文。
 - schema 不加入 Supabase Data API 的 exposed schemas，PUBLIC/anon/authenticated 不具备访问权限。不要手工对应用 schema 授予公开权限。
 - 文件位于私有 `pixloom-cloud-v2` 桶，实际路径包含完整环境 ID、用户 ID 和逻辑桶名。下载经网关授权，客户端不能自行指定其他环境或用户的对象键。
 - 共享池暂不支持自定义服务端函数。相关源码或 `cloud.invoke` 会明确报错；需要此能力时，为新应用选择独立自有后端。
+
+持久登录由平台的 host-only HttpOnly Cookie 恢复；HTTPS 使用 Secure，SameSite=Lax，最长 604800 秒，与工作台 Google 登录分开。应用只获得 5 分钟访问凭证，网关逐次核对持久会话和成员权限。Supabase refresh token 由服务端通过 SQLite 租约串行轮换，网络故障不清除登录；确认的认证失效会撤销会话。退出与恢复/登录并发时通过会话撤销和版本检查防止会话复活。
+
+工作台 iframe 和 `/preview/:artifactId` 可信外层页面通过绑定窗口、随机通道标识和 MessageChannel 提供有限认证操作。沙箱保持 `allow-scripts`，opaque frame 不直接使用平台 Cookie。发布网关在应用自己的域名提供 `/__pixloom/auth/*` 同源认证入口，不依赖第三方 Cookie。Cloud 配置中的 `authMode: persistent-v1` 启用新客户端逻辑。
+
+退出遇到断网时，本地只记录不含凭证的待退出标记；重连先执行撤销，再允许恢复，服务端确认前不报告退出成功。浏览器阻止本地存储时无法保证跨浏览器重启保存离线标记，应在联网时完成退出。
+
+迁移仅增加平台 SQLite 会话表，不改变应用数据库。已有应用需要通过 `cloud_enable` 更新平台客户端后构建新版本，已有产物保持不可变。原始 `/api/previews/.../index.html` 直接打开时不提供持久登录，独立预览改用 `/preview/:artifactId`。
 
 应用侧继续使用 `cloud.signUp/signIn/signOut/getUser/select/insert/update/remove/upload/download`。查询支持 `select`、单字段 `order`、`limit`、`offset`，以及字段上的 `eq/neq/gt/gte/lt/lte/is.null` 过滤；不接受任意 SQL 或 PostgREST 表达式。新增 `cloud.removeFile`。浏览器预览仅放行绑定应用环境的 Cloud 路径。
 

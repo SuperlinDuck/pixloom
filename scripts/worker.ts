@@ -1,3 +1,6 @@
+import { reapEnvironments } from '../src/lib/runtime/lifecycle'
+import { DockerRuntime } from '../src/lib/runtime/docker'
+import { assertProductionConfig } from '../src/lib/platform-config'
 import { cleanupOrphanedTestAccounts } from '../src/lib/cloud/test-account'
 import { loadEnvConfig } from '@next/env'
 import { randomUUID } from 'node:crypto'
@@ -10,6 +13,7 @@ import {
 import { runTask } from '../src/lib/runner'
 
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production')
+assertProductionConfig()
 const owner = randomUUID()
 const shutdown = new AbortController()
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
@@ -23,9 +27,19 @@ async function main() {
   }, 3000)
   try {
     await cleanupOrphanedTestAccounts()
+    const runtime = new DockerRuntime()
+    let lastReap = 0
     while (!shutdown.signal.aborted) {
+      if (Date.now() - lastReap > 30000) {
+        lastReap = Date.now()
+        try {
+          await reapEnvironments(runtime, owner)
+        } catch {
+          console.error('环境回收失败，请检查 Docker；下轮重试。')
+        }
+      }
       const task = claimTask(owner)
-      if (task) await runTask(task, undefined, shutdown.signal, owner)
+      if (task) await runTask(task, runtime, shutdown.signal, owner)
       else await new Promise((resolve) => setTimeout(resolve, 500))
     }
   } finally {

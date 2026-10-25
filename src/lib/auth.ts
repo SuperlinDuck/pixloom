@@ -1,8 +1,15 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from 'node:crypto'
 import { OAuth2Client, CodeChallengeMethod } from 'google-auth-library'
 import { NextResponse } from 'next/server'
 import { db, StoreError, transaction } from './store'
 import type { AccountUser } from './auth-types'
+import { adminEmails } from './platform-config'
+import { assertActive, ownerOf, takeRate, type PlatformUser } from './tenancy'
 import { workspaceOrigin, workspaceRequestOrigin } from './workspace-origin'
 
 export const sessionCookie = 'pixloom_session'
@@ -14,6 +21,7 @@ const token = () => randomBytes(32).toString('base64url')
 
 export function authRequired() {
   return !!(
+    process.env.NODE_ENV === 'production' ||
     process.env.PIXLOOM_GOOGLE_CLIENT_ID ||
     process.env.PIXLOOM_GOOGLE_CLIENT_SECRET
   )
@@ -57,7 +65,15 @@ function client() {
   })
 }
 
+export function authCookieName(name: string) {
+  return (name === sessionCookie || name === flowCookie) &&
+    workspaceOrigin().startsWith('https:')
+    ? `__Host-${name}`
+    : name
+}
+
 export function readCookie(request: Request, name: string) {
+  name = authCookieName(name)
   return request.headers
     .get('cookie')
     ?.split(';')
@@ -72,7 +88,7 @@ export function setAuthCookie(
   value: string,
   maxAge: number,
 ) {
-  response.cookies.set(name, value, {
+  response.cookies.set(authCookieName(name), value, {
     httpOnly: true,
     secure: googleConfigured() && googleConfig().origin.startsWith('https:'),
     sameSite: 'lax',
@@ -96,6 +112,7 @@ export function assertAuthOrigin(request: Request) {
 }
 
 export async function startGoogleLogin() {
+  transaction(() => takeRate('google:global', 60))
   const oauth = client()
   const { codeVerifier, codeChallenge } =
     await oauth.generateCodeVerifierAsync()
@@ -188,47 +205,116 @@ export async function googleIdentity(code: string, flow: Flow) {
   }
 }
 
-export function signInAccount(profile: AccountUser & { subject: string }) {
+export function signInAccount(profile: {
+  subject: string
+  name: string
+  email: string
+  picture: string | null
+}) {
   return transaction(() => {
     const existing = db()
-      .prepare('SELECT subject FROM auth_account WHERE id=1')
-      .get() as { subject: string } | undefined
-    if (existing && existing.subject !== profile.subject)
-      throw new StoreError('此工作空间已绑定其他 Google 账号', 403)
+      .prepare('SELECT * FROM users WHERE subject=?')
+      .get(profile.subject) as PlatformUser | undefined
+    if (existing?.status === 'disabled') throw new StoreError('账号已停用', 403)
+    const first = !db().prepare('SELECT 1 FROM users LIMIT 1').get()
+    const admin =
+      adminEmails().includes(profile.email.toLowerCase()) ||
+      (process.env.NODE_ENV !== 'production' && first && !adminEmails().length)
+    const id = existing?.id || randomUUID()
     db()
       .prepare(
-        `INSERT INTO auth_account VALUES (1,?,?,?,?)
-      ON CONFLICT(id) DO UPDATE SET name=excluded.name,email=excluded.email,picture=excluded.picture`,
+        `INSERT INTO users (id,subject,name,email,picture,role,status,creditLimit,createdAt)
+      VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(subject) DO UPDATE SET name=excluded.name,email=excluded.email,picture=excluded.picture`,
       )
-      .run(profile.subject, profile.name, profile.email, profile.picture)
+      .run(
+        id,
+        profile.subject,
+        profile.name,
+        profile.email,
+        profile.picture,
+        admin ? 'admin' : 'user',
+        admin ? 'active' : 'pending',
+        admin ? 1_000_000_000 : 0,
+        Date.now(),
+      )
+    if (admin && existing && existing.role !== 'admin')
+      db()
+        .prepare(
+          "UPDATE users SET role='admin',status='active',creditLimit=MAX(creditLimit,1000000000),accessExpiresAt=NULL WHERE id=?",
+        )
+        .run(id)
+    // Local data is claimed only by the designated administrator, never by an invitee.
+    if (admin) {
+      db()
+        .prepare('UPDATE projects SET ownerId=? WHERE ownerId IS NULL')
+        .run(id)
+      db()
+        .prepare('UPDATE cloud_connections SET ownerId=? WHERE ownerId IS NULL')
+        .run(id)
+    }
     db().prepare('DELETE FROM auth_sessions WHERE expiresAt<=?').run(Date.now())
     const session = token()
     db()
-      .prepare('INSERT INTO auth_sessions VALUES (?,?)')
-      .run(hash(session), Date.now() + sessionSeconds * 1000)
+      .prepare(
+        'INSERT INTO auth_sessions (tokenHash,expiresAt,userId) VALUES (?,?,?)',
+      )
+      .run(hash(session), Date.now() + sessionSeconds * 1000, id)
     return session
   })
 }
 
-export function currentAccount(request: Request): AccountUser | null {
+export function sessionUser(request: Request): PlatformUser | null {
   if (!googleConfigured()) return null
   const session = readCookie(request, sessionCookie)
   if (!session || !/^[\w-]{43}$/.test(session)) return null
   return (
     (db()
       .prepare(
-        `SELECT name,email,picture FROM auth_account WHERE id=1
-    AND EXISTS (SELECT 1 FROM auth_sessions WHERE tokenHash=? AND expiresAt>?)`,
+        `SELECT users.* FROM users JOIN auth_sessions ON auth_sessions.userId=users.id
+    WHERE auth_sessions.tokenHash=? AND auth_sessions.expiresAt>?`,
       )
-      .get(hash(session), Date.now()) as AccountUser | undefined) || null
+      .get(hash(session), Date.now()) as PlatformUser | undefined) || null
   )
 }
-
-export function requireWorkspaceUser(request: Request) {
-  if (!authRequired()) return
+export function currentAccount(request: Request): AccountUser | null {
+  const user = sessionUser(request)
+  if (!user) return null
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    picture: user.picture,
+    role: user.role,
+    status: user.status,
+    accessExpiresAt: user.accessExpiresAt,
+  }
+}
+export function requireSignedIn(request: Request) {
   if (!googleConfigured()) throw new StoreError('Google 登录配置不完整', 503)
-  if (!currentAccount(request))
-    throw new StoreError('请先登录 Google 账号', 401)
+  const user = sessionUser(request)
+  if (!user) throw new StoreError('请先登录 Google 账号', 401)
+  if (user.status === 'disabled') throw new StoreError('账号已停用', 403)
+  return user
+}
+export function requireWorkspaceUser(request: Request) {
+  if (!authRequired()) return undefined
+  const user = requireSignedIn(request)
+  assertActive(user)
+  return user
+}
+export function requireProjectUser(request: Request, projectId: string) {
+  const user = requireWorkspaceUser(request)
+  if (user && ownerOf(projectId) !== user.id)
+    throw new StoreError('项目不存在', 404)
+  return user
+}
+export function requireTaskUser(request: Request, taskId: string) {
+  requireWorkspaceUser(request)
+  const task = db()
+    .prepare('SELECT projectId FROM tasks WHERE id=?')
+    .get(taskId) as { projectId: string } | undefined
+  if (!task) throw new StoreError('任务不存在', 404)
+  return requireProjectUser(request, task.projectId)
 }
 
 export function revokeSession(request: Request) {

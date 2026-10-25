@@ -161,7 +161,8 @@ export async function establishSession(
   db()
     .prepare('DELETE FROM cloud_sessions_v2 WHERE expiresAt<?')
     .run(Date.now())
-  const expiresAt = Date.now() + (persistent ? PERSISTENT_SESSION_MS : 60 * 60 * 1000)
+  const expiresAt =
+    Date.now() + (persistent ? PERSISTENT_SESSION_MS : 60 * 60 * 1000)
   db()
     .prepare('INSERT INTO cloud_sessions_v2 VALUES (?,?,?,?,?,?,?)')
     .run(
@@ -186,21 +187,40 @@ export async function authenticateShared(
   if (!authorization || !/^Bearer [A-Za-z0-9_-]{43}$/.test(authorization))
     throw new StoreError('请先登录', 401)
   const hash = digestToken(authorization.slice(7))
-  const access = db().prepare('SELECT sessionHash,expiresAt FROM cloud_access_tokens_v3 WHERE tokenHash=?').get(hash) as {sessionHash: string; expiresAt: number} | undefined
-  if (access && access.expiresAt <= Date.now()) throw new StoreError('会话已过期，请重新登录', 401)
+  const access = db()
+    .prepare(
+      'SELECT sessionHash,expiresAt FROM cloud_access_tokens_v3 WHERE tokenHash=?',
+    )
+    .get(hash) as { sessionHash: string; expiresAt: number } | undefined
+  if (access && access.expiresAt <= Date.now())
+    throw new StoreError('会话已过期，请重新登录', 401)
   return authenticateSharedSession(row, access?.sessionHash || hash)
 }
 
-export async function authenticateSharedSession(row: SharedEnvironment, hash: string) {
+export async function authenticateSharedSession(
+  row: SharedEnvironment,
+  hash: string,
+) {
   let session = sessionByHash(row, hash)
   const tokens = await freshTokens(row, session)
   // Keep member and upstream revocation checks for persistent and legacy sessions alike.
-  const member = await sharedTransaction(row.environment, async client => (await client.query(
-    'SELECT 1 FROM pixloom_pool_v2.members WHERE environment_id=$1 AND user_id=$2', [row.id, session.userId],
-  )).rowCount)
+  const member = await sharedTransaction(
+    row.environment,
+    async (client) =>
+      (
+        await client.query(
+          'SELECT 1 FROM pixloom_pool_v2.members WHERE environment_id=$1 AND user_id=$2',
+          [row.id, session.userId],
+        )
+      ).rowCount,
+  )
   if (!member) throw new StoreError('没有此应用的访问权限', 403)
   try {
-    const user = userSchema.parse(await poolRequest(row, '/auth/v1/user', {headers: {Authorization: `Bearer ${tokens.access_token}`}}))
+    const user = userSchema.parse(
+      await poolRequest(row, '/auth/v1/user', {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      }),
+    )
     if (user.id !== session.userId) throw new StoreError('会话身份不匹配', 401)
   } catch (error) {
     if ((error as StoreError).status === 401) revokeSharedSession(hash)
@@ -225,48 +245,113 @@ export function sessionByHash(row: SharedEnvironment, hash: string) {
   return session
 }
 
-async function freshTokens(row: SharedEnvironment, initial: SessionRow): Promise<Tokens> {
+async function freshTokens(
+  row: SharedEnvironment,
+  initial: SessionRow,
+): Promise<Tokens> {
   const owner = randomBytes(16).toString('hex')
   const deadline = Date.now() + 12000
   while (true) {
     const session = sessionByHash(row, initial.tokenHash)
-    const tokens = JSON.parse(unseal(session.tokens, `shared-session:${session.tokenHash}`)) as Tokens
+    const tokens = JSON.parse(
+      unseal(session.tokens, `shared-session:${session.tokenHash}`),
+    ) as Tokens
     if (tokens.expires_at * 1000 > Date.now() + 30000) return tokens
-    const acquired = db().prepare(`INSERT INTO cloud_refresh_leases_v3 VALUES (?,?,?)
-      ON CONFLICT(sessionHash) DO UPDATE SET owner=excluded.owner,until=excluded.until WHERE until<?`)
+    const acquired = db()
+      .prepare(
+        `INSERT INTO cloud_refresh_leases_v3 VALUES (?,?,?)
+      ON CONFLICT(sessionHash) DO UPDATE SET owner=excluded.owner,until=excluded.until WHERE until<?`,
+      )
       .run(session.tokenHash, owner, Date.now() + 30000, Date.now()).changes
     if (!acquired) {
-      if (Date.now() >= deadline) throw new StoreError('会话正在续期，请稍后重试', 503)
-      await new Promise(resolve => setTimeout(resolve, 50))
+      if (Date.now() >= deadline)
+        throw new StoreError('会话正在续期，请稍后重试', 503)
+      await new Promise((resolve) => setTimeout(resolve, 50))
       continue
     }
     try {
-      const next = z.object({access_token: z.string().min(1), refresh_token: z.string().min(1), expires_in: z.number().positive().optional(), expires_at: z.number().positive().optional(), user: userSchema})
-        .parse(await poolRequest(row, '/auth/v1/token?grant_type=refresh_token', {method: 'POST', body: {refresh_token: tokens.refresh_token}}))
-      if (next.user.id !== session.userId || !next.user.email_confirmed_at) throw new StoreError('会话身份已失效', 401)
-      const value: Tokens = {access_token: next.access_token, refresh_token: next.refresh_token, expires_at: next.expires_at || Math.floor(Date.now()/1000) + (next.expires_in || 3600)}
-      const changed = db().prepare('UPDATE cloud_sessions_v2 SET tokens=? WHERE tokenHash=? AND expiresAt>?')
-        .run(seal(JSON.stringify(value), `shared-session:${session.tokenHash}`), session.tokenHash, Date.now()).changes
+      // Another process may have completed rotation between our read and lease acquisition.
+      const current = JSON.parse(
+        unseal(
+          sessionByHash(row, session.tokenHash).tokens,
+          `shared-session:${session.tokenHash}`,
+        ),
+      ) as Tokens
+      if (current.expires_at * 1000 > Date.now() + 30000) return current
+      const next = z
+        .object({
+          access_token: z.string().min(1),
+          refresh_token: z.string().min(1),
+          expires_in: z.number().positive().optional(),
+          expires_at: z.number().positive().optional(),
+          user: userSchema,
+        })
+        .parse(
+          await poolRequest(row, '/auth/v1/token?grant_type=refresh_token', {
+            method: 'POST',
+            body: { refresh_token: current.refresh_token },
+          }),
+        )
+      if (next.user.id !== session.userId || !next.user.email_confirmed_at)
+        throw new StoreError('会话身份已失效', 401)
+      const value: Tokens = {
+        access_token: next.access_token,
+        refresh_token: next.refresh_token,
+        expires_at:
+          next.expires_at ||
+          Math.floor(Date.now() / 1000) + (next.expires_in || 3600),
+      }
+      const changed = db()
+        .prepare(
+          'UPDATE cloud_sessions_v2 SET tokens=? WHERE tokenHash=? AND expiresAt>?',
+        )
+        .run(
+          seal(JSON.stringify(value), `shared-session:${session.tokenHash}`),
+          session.tokenHash,
+          Date.now(),
+        ).changes
       if (!changed) throw new StoreError('会话已退出，请重新登录', 401)
       return value
     } catch (error) {
-      if ((error as StoreError).status === 401) revokeSharedSession(session.tokenHash)
+      if ((error as StoreError).status === 401)
+        revokeSharedSession(session.tokenHash)
       throw error
     } finally {
-      db().prepare('DELETE FROM cloud_refresh_leases_v3 WHERE sessionHash=? AND owner=?').run(session.tokenHash, owner)
+      db()
+        .prepare(
+          'DELETE FROM cloud_refresh_leases_v3 WHERE sessionHash=? AND owner=?',
+        )
+        .run(session.tokenHash, owner)
     }
   }
 }
 
-export function issueAccessSession(row: SharedEnvironment, hash: string) {
-  return transaction(() => {
+export function issueAccessSession(
+  row: SharedEnvironment,
+  hash: string,
+  inTransaction = false,
+) {
+  const issue = () => {
     const session = sessionByHash(row, hash)
-    db().prepare('DELETE FROM cloud_access_tokens_v3 WHERE expiresAt<=?').run(Date.now())
+    db()
+      .prepare('DELETE FROM cloud_access_tokens_v3 WHERE expiresAt<=?')
+      .run(Date.now())
     const token = randomBytes(32).toString('base64url')
-    const expiresAt = Math.min(session.expiresAt, Date.now() + ACCESS_SESSION_MS)
-    db().prepare('INSERT INTO cloud_access_tokens_v3 VALUES (?,?,?)').run(digestToken(token), hash, expiresAt)
-    return {access_token: token, expires_at: Math.floor(expiresAt/1000), session_expires_at: Math.floor(session.expiresAt/1000), user: {id: session.userId, email: session.email}}
-  })
+    const expiresAt = Math.min(
+      session.expiresAt,
+      Date.now() + ACCESS_SESSION_MS,
+    )
+    db()
+      .prepare('INSERT INTO cloud_access_tokens_v3 VALUES (?,?,?)')
+      .run(digestToken(token), hash, expiresAt)
+    return {
+      access_token: token,
+      expires_at: Math.floor(expiresAt / 1000),
+      session_expires_at: Math.floor(session.expiresAt / 1000),
+      user: { id: session.userId, email: session.email },
+    }
+  }
+  return inTransaction ? issue() : transaction(issue)
 }
 export function revokeSharedSession(tokenHash: string) {
   // App logout revokes only this app session, not the shared upstream identity.

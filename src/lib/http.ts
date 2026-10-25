@@ -3,6 +3,8 @@ import { ZodError } from 'zod'
 import { StoreError } from './store'
 import { RuntimeError } from './runtime/types'
 import { requireWorkspaceUser } from './auth'
+import { transaction } from './store'
+import { takeRate } from './tenancy'
 import { workspaceMutationAllowed } from './workspace-origin'
 
 export function errorResponse(error: unknown) {
@@ -33,7 +35,8 @@ export function checkMutation(request: Request, maxBytes = 32000) {
   if (size > maxBytes) throw new StoreError('请求过大', 413)
 }
 export async function readJson(request: Request, maxBytes = 32000) {
-  requireWorkspaceUser(request)
+  const user = requireWorkspaceUser(request)
+  if (user) transaction(() => takeRate(`mutation:${user.id}`, 120))
   checkMutation(request, maxBytes)
   const text = await request.text()
   if (Buffer.byteLength(text) > maxBytes) throw new StoreError('请求过大', 413)

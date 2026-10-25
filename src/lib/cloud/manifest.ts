@@ -53,6 +53,7 @@ const legacyManifestSchema = z
 export const sharedManifestSchema = z
   .object({
     format: z.literal('pixloom-cloud-v2'),
+    authMode: z.literal('persistent-v1').optional(),
     projectId: z.string().uuid(),
     mode: z.literal('managed'),
     environment: z.enum(['development', 'production']),
@@ -94,6 +95,7 @@ export function sharedManifest(
     throw new StoreError('共享应用环境尚未就绪', 409)
   return sharedManifestSchema.parse({
     format: 'pixloom-cloud-v2',
+    authMode: 'persistent-v1',
     projectId,
     mode: 'managed',
     environment,

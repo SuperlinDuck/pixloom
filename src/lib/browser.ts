@@ -13,6 +13,8 @@ import {
   type BrowserReport,
 } from './browser-schema'
 import type { BuildAsset } from './types'
+import { installPreviewAuthBridge } from './cloud/preview-bridge'
+import { browserAuth } from './cloud/browser-auth'
 
 export type CloudTransport = (request: {
   url: string
@@ -97,7 +99,7 @@ export const verifyBrowser: BrowserVerifier = async (
   const backendOrigin = manifestEndpoint(cloud)
   // Login can include an upstream auth request and subsequent user/data reads.
   // Give those requests time to finish before failing an assertion and closing the browser.
-  const stepTimeout = cloud ? 15000 : 2000
+  const stepTimeout = cloud ? 30000 : 2000
   const verificationTimeout = cloud ? 60000 : 25000
   signal.throwIfAborted()
   const origin = 'http://127.0.0.1:4173'
@@ -155,6 +157,38 @@ export const verifyBrowser: BrowserVerifier = async (
     await context.route('**/*', async (route) => {
       const request = route.request()
       const url = new URL(request.url())
+      if (
+        cloud?.format === 'pixloom-cloud-v2' &&
+        cloud.authMode === 'persistent-v1' &&
+        url.origin === origin &&
+        url.pathname.startsWith(`/api/app-auth/${artifactId}/`) &&
+        request.frame() === page.mainFrame()
+      ) {
+        if (cloud.environment === 'production') {
+          if (request.method() === 'POST' && url.pathname.endsWith('/resume'))
+            return route.fulfill({
+              contentType: 'application/json',
+              body: 'null',
+            })
+          record('禁止在生产验证中修改登录状态')
+          return route.abort()
+        }
+        const result = await browserAuth(
+          new Request(request.url(), {
+            method: request.method(),
+            headers: await request.allHeaders(),
+            body: request.postData(),
+          }),
+          cloud,
+          origin,
+          'browser-verifier',
+        )
+        return route.fulfill({
+          status: result.status,
+          headers: Object.fromEntries(result.headers),
+          body: Buffer.from(await result.arrayBuffer()),
+        })
+      }
       if (
         backendOrigin &&
         cloudNetworkAllowed(url, backendOrigin) &&
@@ -227,9 +261,9 @@ export const verifyBrowser: BrowserVerifier = async (
         return route.fulfill({
           contentType: 'text/html',
           headers: {
-            'Content-Security-Policy': `default-src 'none'; frame-src ${origin}; style-src 'unsafe-inline'`,
+            'Content-Security-Policy': `default-src 'none'; frame-src ${origin}; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src ${origin}/api/previews/${artifactId}/ ${origin}/api/app-auth/${artifactId}/`,
           },
-          body: `<iframe title="候选预览" sandbox="allow-scripts" style="width:100%;height:760px;border:0" src="${prefix}index.html"></iframe>`,
+          body: `<iframe title="候选预览" sandbox="allow-scripts" style="width:100%;height:760px;border:0" ${cloud?.format === 'pixloom-cloud-v2' && cloud.authMode === 'persistent-v1' ? '' : `src="${prefix}index.html"`}></iframe>${cloud?.format === 'pixloom-cloud-v2' && cloud.authMode === 'persistent-v1' ? `<script>const __name=(value)=>value;(${installPreviewAuthBridge.toString()})(document.querySelector('iframe'),${JSON.stringify(artifactId)})</script>` : ''}`,
         })
       }
       const asset = url.pathname.startsWith(prefix)
@@ -237,7 +271,15 @@ export const verifyBrowser: BrowserVerifier = async (
             (asset) => `${prefix}${asset.path}` === url.pathname,
           )
         : undefined
-      if (!asset || request.frame() === page.mainFrame()) {
+      if (
+        !asset ||
+        (request.frame() === page.mainFrame() &&
+          !(
+            cloud?.format === 'pixloom-cloud-v2' &&
+            cloud.authMode === 'persistent-v1' &&
+            asset.path === 'pixloom-cloud.json'
+          ))
+      ) {
         record('候选页面请求了未提供的资源或尝试离开预览')
         return route.abort()
       }

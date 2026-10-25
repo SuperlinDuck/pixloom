@@ -12,6 +12,7 @@ export type CommandResult = {
 }
 export type PreviewAsset = { status: number; contentType: string; body: string }
 export interface ProjectRuntime {
+  managedProjects?(): Promise<string[]>
   health(): Promise<DockerHealth>
   prepare(signal?: AbortSignal): Promise<void>
   create(

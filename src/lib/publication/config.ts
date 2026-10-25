@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { projectPublicId } from '../store'
+import { workspaceOrigin } from '../workspace-origin'
 
 export function publicationConfig() {
   const domain = process.env.PIXLOOM_PUBLISH_DOMAIN || 'apps.localhost'
@@ -63,19 +64,31 @@ export function caddyConfig(config = publicationConfig(), localPort?: number) {
   const routes = `    @internal path /_pixloom /_pixloom/*\n    respond @internal 404\n    reverse_proxy ${upstream}\n`
   if (localPort !== undefined)
     return `{\n    admin off\n    auto_https off\n}\nhttp://:${localPort} {\n    bind 127.0.0.1\n${routes}}\n`
+  const workspace = workspaceOrigin()
+  const workspaceHost = new URL(workspace).host
+  const workbench = workspace.startsWith('https:')
+    ? `https://${workspaceHost} {\n    request_body {\n        max_size 8MB\n    }\n    reverse_proxy 127.0.0.1:3000\n}\n`
+    : ''
+  const cloud = process.env.PIXLOOM_CLOUD_RUNTIME_URL
+  const cloudHost = cloud?.startsWith('https:')
+    ? new URL(cloud).host
+    : undefined
+  const cloudRedirect = cloudHost
+    ? `    @cloud host ${cloudHost}\n    redir @cloud https://{host}{uri} 308\n`
+    : ''
   return `{
     admin 127.0.0.1:2019
     on_demand_tls {
         ask http://${upstream}/_pixloom/allow-domain
     }
 }
-https:// {
+${workbench}https:// {
     tls {
         on_demand
     }
 ${routes}}
 http:// {
-    @apps host *.${config.domain}
+${cloudRedirect}    @apps host *.${config.domain}
     redir @apps https://{host}{uri} 308
     respond 404
 }

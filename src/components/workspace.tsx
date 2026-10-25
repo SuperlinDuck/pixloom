@@ -47,6 +47,7 @@ import { diffFiles } from '@/lib/diff'
 import { useWorkspaceDialog } from './workspace-dialog'
 import { WorkspaceAccount, useWorkspaceAccount } from './workspace-account'
 import { WorkspaceCloud } from './workspace-cloud'
+import { TrustedPreview } from './trusted-preview'
 import { MarkdownReply } from './markdown-reply'
 import type { DockerHealth } from '@/lib/runtime/types'
 
@@ -132,8 +133,22 @@ type Environment = {
 }
 
 export function Workspace() {
-  const { ask, dialog } = useWorkspaceDialog()
   const account = useWorkspaceAccount()
+  return (
+    <WorkspaceSession
+      key={account.session.user?.id || 'visitor'}
+      account={account}
+    />
+  )
+}
+
+function WorkspaceSession({
+  account,
+}: {
+  account: ReturnType<typeof useWorkspaceAccount>
+}) {
+  const { ask, dialog } = useWorkspaceDialog()
+  const projectStorageKey = `pixloom-v3-project:${account.session.user?.id || 'local'}`
   const { canAccess } = account
   const [projects, setProjects] = useState<Project[]>([]),
     [projectId, setProjectId] = useState<string | null>(null)
@@ -186,6 +201,7 @@ export function Workspace() {
     !!detail && !!draft && detail.draft.revision !== draft.revision
   const locked = busy || !!active || viewingHistory || conflict
   const ready = canAccess && !!status?.workerOnline
+  const aiReady = ready && (account.session.usage?.remainingCredits ?? 1) > 0
 
   useEffect(() => {
     if (!copiedTaskId) return
@@ -208,14 +224,18 @@ export function Workspace() {
       window.history.replaceState(null, '', window.location.pathname)
       return
     }
-    const remembered = localStorage.getItem('pixloom-v3-project')
+    const remembered =
+      localStorage.getItem(projectStorageKey) ||
+      (!account.session.required
+        ? localStorage.getItem('pixloom-v3-project')
+        : null)
     if (remembered) setProjectId(remembered)
-  }, [canAccess])
+  }, [canAccess, projectStorageKey])
   useEffect(() => {
     if (!canAccess) return
-    if (projectId) localStorage.setItem('pixloom-v3-project', projectId)
-    else localStorage.removeItem('pixloom-v3-project')
-  }, [projectId, canAccess])
+    if (projectId) localStorage.setItem(projectStorageKey, projectId)
+    else localStorage.removeItem(projectStorageKey)
+  }, [projectId, canAccess, projectStorageKey])
   useEffect(() => {
     if (!menu) return
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -421,14 +441,18 @@ export function Workspace() {
   const modelHint = account.loading
     ? '正在加载账号…'
     : !canAccess
-      ? '登录后即可开始创建应用。'
+      ? account.session.user
+        ? '兑换邀请码后即可开始创建应用。'
+        : '登录后兑换邀请码，即可开始创建应用。'
       : !status
         ? '正在检查生成服务…'
         : !modelConfigured
           ? '请在 .env.local 配置所选模型密钥并重启 Web 和 Worker。'
-          : !ready
-            ? 'Worker 未连接，请运行 pnpm dev 或 pnpm worker。'
-            : ''
+          : account.session.usage?.remainingCredits === 0
+            ? '体验额度已用尽，已有项目仍可查看、编辑和导出。'
+            : !ready
+              ? 'Worker 未连接，请运行 pnpm dev 或 pnpm worker。'
+              : ''
   async function perform(fn: () => Promise<void>) {
     setBusy(true)
     setError('')
@@ -553,7 +577,7 @@ export function Workspace() {
       viewingHistory ||
       conflict ||
       !requestPrompt ||
-      !ready ||
+      !aiReady ||
       !status?.models.find((model) => model.provider === requestProvider)
         ?.configured
     )
@@ -936,7 +960,7 @@ export function Workspace() {
                     className="primary-button"
                     type="submit"
                     disabled={
-                      busy || !prompt.trim() || !ready || !modelConfigured
+                      busy || !prompt.trim() || !aiReady || !modelConfigured
                     }
                   >
                     {busy ? (
@@ -1068,7 +1092,7 @@ export function Workspace() {
                                   type="button"
                                   disabled={
                                     locked ||
-                                    !ready ||
+                                    !aiReady ||
                                     !draft ||
                                     !status?.models.find(
                                       (model) =>
@@ -1154,7 +1178,7 @@ export function Workspace() {
                       type="submit"
                       disabled={
                         locked ||
-                        !ready ||
+                        !aiReady ||
                         !draft ||
                         !prompt.trim() ||
                         !status?.models.find((m) => m.provider === provider)
@@ -1343,7 +1367,7 @@ export function Workspace() {
                         onClick={() => {
                           if (shown)
                             window.open(
-                              `/api/previews/${shown.artifactId}/index.html`,
+                              `/preview/${shown.artifactId}`,
                               '_blank',
                               'noopener,noreferrer',
                             )
@@ -1355,13 +1379,12 @@ export function Workspace() {
                   </div>
                   <div className="preview-canvas">
                     {shown ? (
-                      <iframe
+                      <TrustedPreview
                         key={`${shown.artifactId}-${previewKey}`}
                         title={`应用预览 v${shown.number}`}
                         className={mobile ? 'phone-frame' : ''}
-                        src={`/api/previews/${shown.artifactId}/index.html`}
-                        sandbox="allow-scripts"
-                        referrerPolicy="no-referrer"
+                        projectId={projectId}
+                        artifactId={shown.artifactId}
                       />
                     ) : (
                       <div className="preview-empty">

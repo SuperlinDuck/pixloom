@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 import { homedir } from 'node:os'
@@ -15,6 +16,7 @@ import {
 export const RUNTIME_IMAGE = 'pixloom-runtime:react-v2'
 const MANAGED_LABEL = 'dev.pixloom.runtime'
 const OWNER_LABEL = 'dev.pixloom.project'
+const INSTANCE_LABEL = 'dev.pixloom.instance'
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/
 export function containerName(projectId: string) {
   if (!UUID.test(projectId)) throw new RuntimeError('项目 ID 无效')
@@ -140,7 +142,28 @@ function check(result: CliResult, message: string) {
   return result.stdout
 }
 export class DockerRuntime implements ProjectRuntime {
-  constructor(private command: DockerCommand = dockerCommand) {}
+  constructor(
+    private command: DockerCommand = dockerCommand,
+    private scope = createHash('sha256')
+      .update(path.resolve(process.env.PIXLOOM_DATA_DIR || '.pixloom'))
+      .digest('hex'),
+  ) {}
+  async managedProjects() {
+    const result = await this.command([
+      'ps',
+      '--all',
+      '--filter',
+      `label=${MANAGED_LABEL}=true`,
+      '--filter',
+      `label=${INSTANCE_LABEL}=${this.scope}`,
+      '--format',
+      `{{.Label "${OWNER_LABEL}"}}`,
+    ])
+    return check(result, '无法枚举运行环境')
+      .trim()
+      .split('\n')
+      .filter((id) => UUID.test(id))
+  }
   async health(): Promise<DockerHealth> {
     try {
       const result = await this.command(
@@ -199,7 +222,9 @@ export class DockerRuntime implements ProjectRuntime {
     const info = JSON.parse(result.stdout)[0]
     if (
       info?.Config?.Labels?.[MANAGED_LABEL] !== 'true' ||
-      info?.Config?.Labels?.[OWNER_LABEL] !== projectId
+      info?.Config?.Labels?.[OWNER_LABEL] !== projectId ||
+      (info?.Config?.Labels?.[INSTANCE_LABEL] &&
+        info.Config.Labels[INSTANCE_LABEL] !== this.scope)
     )
       throw new RuntimeError('拒绝操作不属于 Pixloom 项目的容器', 409)
     return info
@@ -277,6 +302,8 @@ export class DockerRuntime implements ProjectRuntime {
       `${MANAGED_LABEL}=true`,
       '--label',
       `${OWNER_LABEL}=${projectId}`,
+      '--label',
+      `${INSTANCE_LABEL}=${this.scope}`,
       '--user',
       '1000:1000',
       '--read-only',

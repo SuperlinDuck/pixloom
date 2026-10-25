@@ -1,0 +1,29 @@
+[Unit]
+Description=Pixloom Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pixloom
+Group=pixloom
+SupplementaryGroups=docker
+WorkingDirectory=/srv/pixloom/app
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/pixloom/pixloom.env
+ExecStart=/usr/bin/env pnpm start
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/pixloom/data /srv/pixloom/published /srv/pixloom/app/.next
+UMask=0077
+MemoryMax=2G
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

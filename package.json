@@ -9,7 +9,7 @@
     "gateway": "tsx scripts/gateway.ts",
     "gateway:config": "tsx scripts/gateway.ts --caddy-config",
     "build": "next build",
-    "start": "next start -H 127.0.0.1",
+    "start": "tsx scripts/start.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "format:check": "prettier --check src scripts tests sandbox docs README.md next.config.js package.json vitest.config.mts",
@@ -27,7 +27,10 @@
     "cloud:verify-db": "node --import tsx scripts/verify-cloud-db.ts",
     "cloud:verify-shared": "PIXLOOM_SHARED_DB_TESTS=1 vitest run tests/shared-cloud.test.ts",
     "cloud:pool": "tsx scripts/cloud-pool.ts",
-    "cloud:verify-runtime": "PIXLOOM_CLOUD_RUNTIME_TESTS=1 vitest run tests/cloud-runtime.test.ts"
+    "cloud:verify-runtime": "PIXLOOM_CLOUD_RUNTIME_TESTS=1 vitest run tests/cloud-runtime.test.ts",
+    "admin": "tsx scripts/admin.ts",
+    "ops:check": "tsx scripts/ops-check.ts",
+    "invite:verify": "node --import tsx scripts/verify-invitations.ts"
   },
   "dependencies": {
     "@next/env": "^14.2.35",

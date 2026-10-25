@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { getVersion } from '@/lib/store'
 import { errorResponse } from '@/lib/http'
@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: { id: string; versionId: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireProjectUser(request, params.id)
     return NextResponse.json(getVersion(params.id, params.versionId))
   } catch (e) {
     return errorResponse(e)

@@ -1,3 +1,4 @@
+import { ownerOf } from '../tenancy'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   db,
@@ -34,14 +35,19 @@ export function resources(projectId: string) {
     )
     .all(projectId) as CloudResource[]
 }
-export function connectionId() {
-  return (
-    (
-      db()
-        .prepare('SELECT id FROM cloud_connections ORDER BY rowid DESC LIMIT 1')
-        .get() as { id: string } | undefined
-    )?.id || null
-  )
+export function connectionId(ownerId?: string) {
+  const row = ownerId
+    ? db()
+        .prepare(
+          'SELECT id FROM cloud_connections WHERE ownerId=? ORDER BY rowid DESC LIMIT 1',
+        )
+        .get(ownerId)
+    : db()
+        .prepare(
+          'SELECT id FROM cloud_connections WHERE ownerId IS NULL ORDER BY rowid DESC LIMIT 1',
+        )
+        .get()
+  return (row as { id: string } | undefined)?.id || null
 }
 export function cloudStatus(projectId: string): CloudStatus {
   const row = binding(projectId)
@@ -96,7 +102,7 @@ export function cloudStatus(projectId: string): CloudStatus {
           })()
         : configured('managed'),
     oauthConfigured: configured('oauth'),
-    connected: !!connectionId(),
+    connected: !!connectionId(ownerOf(projectId)),
     cleanupPending:
       (
         db()
@@ -139,7 +145,8 @@ export function reserveBinding(projectId: string, input: SetupInput) {
         throw new StoreError('不能替换已绑定的后端项目', 409)
       return old
     }
-    const conn = input.mode === 'external' ? connectionId() : null
+    const conn =
+      input.mode === 'external' ? connectionId(ownerOf(projectId)) : null
     if (input.mode === 'external') {
       if (!conn) throw new StoreError('请先授权连接 Supabase', 409)
       projectRef(input.development)
@@ -248,7 +255,8 @@ function validateSetupInput(projectId: string, input: SetupInput) {
       managedConfig()
     else sharedPoolConfig('development')
   } else {
-    if (!connectionId()) throw new StoreError('请先授权连接 Supabase', 409)
+    if (!connectionId(ownerOf(projectId)))
+      throw new StoreError('请先授权连接 Supabase', 409)
     projectRef(input.development)
     projectRef(input.production)
     if (input.development === input.production)

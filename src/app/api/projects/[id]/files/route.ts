@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getDraft, getVersion, updateDraft } from '@/lib/store'
@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireProjectUser(request, params.id)
     const versionId = new URL(request.url).searchParams.get('versionId')
     return NextResponse.json(
       versionId ? getVersion(params.id, versionId) : getDraft(params.id),
@@ -24,6 +24,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireProjectUser(request, params.id)
     const input = z
       .object({
         expectedRevision: z.number().int().nonnegative(),

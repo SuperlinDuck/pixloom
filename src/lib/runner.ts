@@ -1,3 +1,6 @@
+import { reapEnvironments } from './runtime/lifecycle'
+import { limit } from './platform-config'
+import { ownerOf, assertActive, userById } from './tenancy'
 import { CloudDefinitionError } from './cloud/errors'
 import { cleanupTestAccount } from './cloud/test-account'
 import { prepareCandidate, runCloudOperation } from './cloud/backend'
@@ -52,6 +55,9 @@ export async function runTask(
   const active = () => !controller.signal.aborted && attemptActive(task, owner)
   let touched = false
   try {
+    const userId = ownerOf(task.projectId)
+    if (userId && !['stop', 'remove', 'unpublish'].includes(task.kind))
+      assertActive(userById(userId))
     if (shutdown?.aborted || !active()) throw new Error('操作已中断')
     if (task.kind === 'publish' || task.kind === 'unpublish') {
       await runPublication(task, {
@@ -112,13 +118,15 @@ export async function runTask(
     touched = true
     // Always reconcile a container left by an interrupted operation before loading source.
     if (state === 'absent') {
+      await reapEnvironments(runtime, owner, true)
+      if (!active()) throw new Error('操作已中断')
       const count = db()
         .prepare(
-          "SELECT COUNT(*) AS n FROM runtime_workspaces WHERE state IN ('running','stopped') AND projectId!=?",
+          "SELECT COUNT(*) AS n FROM runtime_workspaces WHERE state IN ('running','stopped','error') AND projectId!=?",
         )
         .get(id) as { n: number }
-      if (count.n >= 3)
-        throw new Error('本地最多保留 3 个容器环境，请先移除其他环境')
+      if (count.n >= limit('PIXLOOM_MAX_RUNTIME_CONTAINERS', 3))
+        throw new Error('运行环境已满，请稍后重试')
       await runtime.create(id, randomUUID(), value.files, controller.signal)
     } else {
       if (state === 'running') await runtime.stop(id)

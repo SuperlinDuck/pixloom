@@ -22,6 +22,8 @@ export function middleware(request: NextRequest) {
       { status: 403 },
     )
   }
-  return NextResponse.next()
+  const response = NextResponse.next()
+  response.headers.set('Cache-Control', 'no-store')
+  return response
 }
 export const config = { matcher: ['/api/:path*'] }

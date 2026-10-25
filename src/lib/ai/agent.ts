@@ -1,3 +1,4 @@
+import { withModelBilling } from './billing'
 import {
   cloudTestAccount,
   redactTestCredentials,
@@ -238,7 +239,9 @@ export async function runCodingAgent(
       `模型第 ${state.steps}/${AGENT_LIMITS.steps} 步 · ${state.model}`,
       { type: 'model' },
     )
-    const turn = await session.next(inputs, allocation)
+    const turn = await withModelBilling(task, () =>
+      session.next(inputs, allocation),
+    )
     check()
     state.reservedOutputTokens -= allocation
     state.usage.inputTokens += turn.usage.inputTokens

@@ -1,3 +1,4 @@
+import { reserveModelCall, settleModelCall, releaseModelCall } from './billing'
 import type { Provider, Usage } from '../types'
 import {
   agentInstructions,
@@ -108,8 +109,19 @@ async function post(
   // Retry the exact serialized request without replaying inputs into session history.
   const payload = JSON.stringify(body)
   let response: Response
+  let reservation: ReturnType<typeof reserveModelCall>
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted()
+    const requestBody = body as {
+      max_output_tokens?: number
+      generationConfig?: { maxOutputTokens?: number }
+    }
+    reservation = reserveModelCall(
+      payload,
+      requestBody.max_output_tokens ||
+        requestBody.generationConfig?.maxOutputTokens ||
+        24000,
+    )
     try {
       response = await fetch(url, {
         method: 'POST',
@@ -125,6 +137,8 @@ async function post(
       continue
     }
     if (response.ok) break
+    if ([400, 401, 403, 404, 413, 422, 429].includes(response.status))
+      releaseModelCall(reservation)
     const failure = await requestError(response)
     if (!failure.retryable || attempt === MAX_RETRIES) throw failure.error
     await waitForRetry(retryDelay(response, attempt), signal)
@@ -144,8 +158,32 @@ async function post(
     chunks.push(chunk.value)
   }
   try {
-    return { data: JSON.parse(Buffer.concat(chunks).toString('utf8')), bytes }
-  } catch {
+    const data = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    const usage = data.usage || data.usageMetadata
+    if (usage) {
+      const input = data.usage ? usage.input_tokens : usage.promptTokenCount
+      const output = data.usage
+        ? usage.output_tokens
+        : (typeof usage.candidatesTokenCount === 'number'
+            ? usage.candidatesTokenCount
+            : 0) +
+          (typeof usage.thoughtsTokenCount === 'number'
+            ? usage.thoughtsTokenCount
+            : 0)
+      if (
+        typeof input === 'number' &&
+        (data.usage
+          ? typeof usage.output_tokens === 'number'
+          : typeof usage.candidatesTokenCount === 'number')
+      )
+        settleModelCall(reservation, {
+          inputTokens: input,
+          outputTokens: output,
+        })
+    }
+    return { data, bytes }
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
     throw new Error('模型服务返回了无效的 JSON 响应')
   }
 }

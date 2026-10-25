@@ -1,4 +1,10 @@
 import { mkdirSync } from 'node:fs'
+import { ensurePlatformSchema } from './platform-schema'
+import {
+  assertProjectCapacity,
+  assertTaskCapacity,
+  assertUserStorage,
+} from './tenancy'
 import path from 'node:path'
 import { randomUUID, randomInt } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
@@ -19,7 +25,23 @@ import type {
   VersionDetail,
 } from './types'
 
-const globalStore = globalThis as unknown as { pixloomDb?: DatabaseSync }
+const globalStore = globalThis as unknown as {
+  pixloomDb?: DatabaseSync
+  pixloomBrowserSchemaDb?: DatabaseSync
+}
+const browserSessionSchema = `
+    CREATE TABLE IF NOT EXISTS cloud_browsers_v3 (tokenHash TEXT PRIMARY KEY,expiresAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS cloud_browser_sessions_v3 (browserHash TEXT NOT NULL REFERENCES cloud_browsers_v3(tokenHash) ON DELETE CASCADE,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),sessionHash TEXT NOT NULL REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,PRIMARY KEY(browserHash,environmentId));
+    CREATE TABLE IF NOT EXISTS cloud_browser_epochs_v3 (browserHash TEXT NOT NULL REFERENCES cloud_browsers_v3(tokenHash) ON DELETE CASCADE,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),version INTEGER NOT NULL,PRIMARY KEY(browserHash,environmentId));
+    CREATE TABLE IF NOT EXISTS cloud_access_tokens_v3 (tokenHash TEXT PRIMARY KEY,sessionHash TEXT NOT NULL REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,expiresAt INTEGER NOT NULL);
+    CREATE INDEX IF NOT EXISTS cloud_access_session_v3 ON cloud_access_tokens_v3(sessionHash);
+    CREATE TABLE IF NOT EXISTS cloud_refresh_leases_v3 (sessionHash TEXT PRIMARY KEY REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,owner TEXT NOT NULL,until INTEGER NOT NULL);
+`
+function ensureBrowserSessionSchema(connection: DatabaseSync) {
+  if (globalStore.pixloomBrowserSchemaDb === connection) return
+  connection.exec(browserSessionSchema)
+  globalStore.pixloomBrowserSchemaDb = connection
+}
 const now = () => new Date().toISOString()
 export class StoreError extends Error {
   constructor(
@@ -30,7 +52,10 @@ export class StoreError extends Error {
   }
 }
 export function db() {
-  if (globalStore.pixloomDb) return globalStore.pixloomDb
+  if (globalStore.pixloomDb) {
+    ensureBrowserSessionSchema(globalStore.pixloomDb)
+    return globalStore.pixloomDb
+  }
   const directory = path.resolve(process.env.PIXLOOM_DATA_DIR || '.pixloom')
   mkdirSync(directory, { recursive: true })
   const c = new DatabaseSync(path.join(directory, 'pixloom-v3.db'))
@@ -77,11 +102,6 @@ export function db() {
     CREATE TABLE IF NOT EXISTS cloud_environments_v2 (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES cloud_apps_v2(projectId),environment TEXT NOT NULL,poolId TEXT NOT NULL REFERENCES cloud_pools(id),namespace TEXT NOT NULL UNIQUE,role TEXT NOT NULL UNIQUE,password TEXT NOT NULL,status TEXT NOT NULL,definition TEXT NOT NULL DEFAULT '{"tables":[],"buckets":[]}',hash TEXT,UNIQUE(projectId,environment));
     CREATE TABLE IF NOT EXISTS cloud_operations_v2 (id TEXT PRIMARY KEY,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),hash TEXT NOT NULL,status TEXT NOT NULL,error TEXT,updatedAt INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS cloud_sessions_v2 (tokenHash TEXT PRIMARY KEY,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),generation TEXT NOT NULL,userId TEXT NOT NULL,email TEXT NOT NULL,tokens TEXT NOT NULL,expiresAt INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS cloud_browsers_v3 (tokenHash TEXT PRIMARY KEY,expiresAt INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS cloud_browser_sessions_v3 (browserHash TEXT NOT NULL REFERENCES cloud_browsers_v3(tokenHash) ON DELETE CASCADE,environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),sessionHash TEXT NOT NULL REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,PRIMARY KEY(browserHash,environmentId));
-    CREATE TABLE IF NOT EXISTS cloud_access_tokens_v3 (tokenHash TEXT PRIMARY KEY,sessionHash TEXT NOT NULL REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,expiresAt INTEGER NOT NULL);
-    CREATE INDEX IF NOT EXISTS cloud_access_session_v3 ON cloud_access_tokens_v3(sessionHash);
-    CREATE TABLE IF NOT EXISTS cloud_refresh_leases_v3 (sessionHash TEXT PRIMARY KEY REFERENCES cloud_sessions_v2(tokenHash) ON DELETE CASCADE,owner TEXT NOT NULL,until INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS cloud_rates_v2 (key TEXT PRIMARY KEY,window INTEGER NOT NULL,count INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS cloud_tests_v2 (taskId TEXT PRIMARY KEY REFERENCES tasks(id),environmentId TEXT NOT NULL REFERENCES cloud_environments_v2(id),email TEXT NOT NULL UNIQUE,password TEXT NOT NULL,userId TEXT,status TEXT NOT NULL);
     INSERT OR IGNORE INTO cloud_schema_versions VALUES (2);
@@ -93,6 +113,8 @@ export function db() {
     )
   )
     c.exec('ALTER TABLE tasks ADD COLUMN agent TEXT')
+  ensureBrowserSessionSchema(c)
+  ensurePlatformSchema(c)
   globalStore.pixloomDb = c
   c.prepare('INSERT OR IGNORE INTO publication_meta VALUES (1,?)').run(
     randomUUID(),
@@ -140,7 +162,11 @@ export function projectPublicId(projectId: string): string {
   }
   throw new StoreError('无法分配发布短 ID，请重试', 503)
 }
-export function listProjects(): Project[] {
+export function listProjects(ownerId?: string): Project[] {
+  if (ownerId)
+    return db()
+      .prepare('SELECT * FROM projects WHERE ownerId=? ORDER BY updatedAt DESC')
+      .all(ownerId) as Project[]
   return db()
     .prepare('SELECT * FROM projects ORDER BY updatedAt DESC')
     .all() as Project[]
@@ -202,30 +228,43 @@ export function getProject(id: string): ProjectDetail {
     runtime: getRuntime(id),
   }
 }
-export function createProject(name: string, files: SourceFile[]): Project {
+export function createProject(
+  name: string,
+  files: SourceFile[],
+  ownerId?: string,
+): Project {
   const value = snapshot(files)
-  return transaction(() => insertProject(name, value))
+  return transaction(() => insertProject(name, value, ownerId))
 }
-function insertProject(name: string, value: ReturnType<typeof snapshot>) {
+function insertProject(
+  name: string,
+  value: ReturnType<typeof snapshot>,
+  ownerId?: string,
+) {
+  assertProjectCapacity(ownerId)
   const id = randomUUID(),
     time = now()
   db()
-    .prepare('INSERT INTO projects VALUES (?,?,?,?,?)')
-    .run(id, name, null, time, time)
+    .prepare(
+      'INSERT INTO projects (id,name,currentVersionId,createdAt,updatedAt,ownerId) VALUES (?,?,?,?,?,?)',
+    )
+    .run(id, name, null, time, time, ownerId || null)
   db()
     .prepare('INSERT INTO workspace_drafts VALUES (?,?,?,?,?,?)')
     .run(id, null, 0, JSON.stringify(value.files), value.hash, time)
   projectPublicId(id)
+  assertStorageBudget(id)
   return projectById(id)
 }
 export function createAgentProject(
   name: string,
   files: SourceFile[],
   agent: AgentState,
+  ownerId?: string,
 ) {
   const value = snapshot(files)
   return transaction(() => {
-    const project = insertProject(name, value)
+    const project = insertProject(name, value, ownerId)
     insertTask(project.id, 'agent', 0, null, undefined, undefined, agent)
     return project
   })
@@ -277,6 +316,7 @@ export function updateDraft(
   })
 }
 function assertStorageBudget(projectId: string) {
+  assertUserStorage(projectId)
   const sum = (table: string, expression: string) =>
     (
       db()
@@ -287,10 +327,10 @@ function assertStorageBudget(projectId: string) {
     ).n
   const bytes =
     sum('preview_artifacts', 'bytes') +
-    sum('versions', 'length(CAST(files AS BLOB))') +
-    sum('workspace_drafts', 'length(CAST(files AS BLOB))') +
-    sum('draft_backups', 'length(CAST(files AS BLOB))') +
-    sum('tasks', 'length(CAST(candidateFiles AS BLOB))')
+    sum('versions', 'octet_length(files)') +
+    sum('workspace_drafts', 'octet_length(files)') +
+    sum('draft_backups', 'octet_length(files)') +
+    sum('tasks', 'octet_length(candidateFiles)')
   if (bytes > 128 * 1024 * 1024)
     throw new StoreError('项目源码与产物超过 128 MiB，请新建项目', 413)
 }
@@ -387,6 +427,7 @@ export function insertTask(
 ): Task {
   if (kind === 'agent' && !agent) throw new StoreError('缺少模型任务配置')
   const project = projectById(projectId)
+  assertTaskCapacity(projectId, kind)
   assertIdle(projectId)
   const draft = assertRevision(projectId, expectedRevision)
   if (project.currentVersionId !== expectedVersionId)

@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireProjectUser } from '@/lib/auth'
 import { exportVersion } from '@/lib/delivery'
 import { errorResponse } from '@/lib/http'
 
@@ -10,7 +10,7 @@ export async function GET(
   { params }: { params: { id: string; versionId: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireProjectUser(request, params.id)
     const bundle = await exportVersion(params.id, params.versionId)
     return new Response(bundle.body, {
       headers: {

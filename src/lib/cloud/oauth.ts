@@ -9,6 +9,7 @@ import {
   authRequired,
   readCookie,
   requireWorkspaceUser,
+  requireProjectUser,
   sessionCookie,
 } from '../auth'
 import { db, projectById, StoreError, transaction } from '../store'
@@ -38,7 +39,7 @@ function cookie(response: NextResponse, value: string, maxAge: number) {
   return response
 }
 export function startSupabaseOAuth(request: Request, projectId: string) {
-  requireWorkspaceUser(request)
+  requireProjectUser(request, projectId)
   projectById(projectId)
   if (workspaceRequestOrigin(request) !== workspaceOrigin())
     throw new StoreError('Supabase 授权必须从配置的工作台地址发起', 400)
@@ -146,6 +147,7 @@ export async function finishSupabaseOAuth(request: Request) {
     !timingSafeEqual(Buffer.from(state), Buffer.from(flow.state))
   )
     throw new StoreError('Supabase 授权已过期，请重新连接', 400)
+  requireProjectUser(request, flow.projectId)
   if (params.has('error')) throw new StoreError('已取消 Supabase 授权', 400)
   const code = params.get('code')
   if (!code || code.length > 4000)
@@ -157,8 +159,8 @@ export async function finishSupabaseOAuth(request: Request) {
     code_verifier: unseal(flow.verifier, `oauth-flow:${state}`),
   })
   // Recheck session before persisting an asynchronously returned credential.
-  requireWorkspaceUser(request)
-  saveConnection(tokens)
+  const user = requireProjectUser(request, flow.projectId)
+  saveConnection(tokens, user?.id)
   return cookie(
     NextResponse.redirect(
       `${workspaceOrigin()}/?cloudProject=${flow.projectId}`,
@@ -167,17 +169,18 @@ export async function finishSupabaseOAuth(request: Request) {
     0,
   )
 }
-export function saveConnection(tokens: Token) {
-  const id = 'workspace-supabase'
+export function saveConnection(tokens: Token, ownerId?: string) {
+  const id = ownerId ? `user-supabase:${ownerId}` : 'workspace-supabase'
   db()
     .prepare(
-      `INSERT INTO cloud_connections (id,accessToken,refreshToken,expiresAt) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET accessToken=excluded.accessToken,refreshToken=excluded.refreshToken,expiresAt=excluded.expiresAt,refreshLease=NULL,refreshUntil=0`,
+      `INSERT INTO cloud_connections (id,accessToken,refreshToken,expiresAt,ownerId) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET accessToken=excluded.accessToken,refreshToken=excluded.refreshToken,expiresAt=excluded.expiresAt,refreshLease=NULL,refreshUntil=0`,
     )
     .run(
       id,
       seal(tokens.access_token, `access:${id}`),
       seal(tokens.refresh_token, `refresh:${id}`),
       Date.now() + tokens.expires_in * 1000,
+      ownerId || null,
     )
   return id
 }

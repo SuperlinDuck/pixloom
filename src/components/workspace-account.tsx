@@ -11,7 +11,7 @@ const signedOut: AccountSession = {
 }
 const loginErrors: Record<string, string> = {
   cancelled: '已取消 Google 登录',
-  account: '此工作空间已绑定其他 Google 账号，请使用原账号登录。',
+  account: '此账号暂不可用，请联系管理员。',
   failed: 'Google 登录失败或已过期，请重试。',
 }
 
@@ -58,7 +58,13 @@ export function useWorkspaceAccount() {
     loading,
     error,
     setError,
-    canAccess: !loading && (!session.required || !!session.user),
+    refresh,
+    canAccess:
+      !loading &&
+      (!session.required ||
+        (session.user?.status === 'active' &&
+          (!session.user.accessExpiresAt ||
+            session.user.accessExpiresAt > Date.now()))),
   }
 }
 
@@ -94,6 +100,7 @@ export function WorkspaceAccount({
 }) {
   const [pending, setPending] = useState(false)
   const [imageFailed, setImageFailed] = useState(false)
+  const [code, setCode] = useState('')
   const { session, loading, error, setError } = account
   const user = session.user
   async function login() {
@@ -120,9 +127,29 @@ export function WorkspaceAccount({
         throw new Error(data?.error || '退出失败，请重试。')
       }
       localStorage.removeItem('pixloom-v3-project')
+      if (user) localStorage.removeItem(`pixloom-v3-project:${user.id}`)
       window.location.assign('/')
     } catch (e) {
       setError((e as Error).message)
+      setPending(false)
+    }
+  }
+  async function redeem() {
+    setPending(true)
+    setError('')
+    try {
+      const response = await fetch('/api/auth/invitation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || '兑换失败')
+      setCode('')
+      await account.refresh()
+    } catch (error) {
+      setError((error as Error).message)
+    } finally {
       setPending(false)
     }
   }
@@ -173,6 +200,55 @@ export function WorkspaceAccount({
           {pending ? <Loader2 size={18} className="spin" /> : <GoogleIcon />}
           {pending ? '正在前往 Google…' : '使用 Google 登录'}
         </button>
+      )}
+      {user?.status === 'pending' && (
+        <form
+          className="invitation-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void redeem()
+          }}
+        >
+          <label htmlFor="invitation-code">输入邀请码，开通体验</label>
+          <input
+            id="invitation-code"
+            autoComplete="off"
+            value={code}
+            maxLength={100}
+            onChange={(event) => setCode(event.target.value)}
+            required
+          />
+          <button className="primary-button" disabled={pending || !code.trim()}>
+            {pending ? '正在兑换…' : '兑换邀请码'}
+          </button>
+        </form>
+      )}
+      {user?.status === 'disabled' && (
+        <p role="alert">账号已停用，请联系管理员。</p>
+      )}
+      {user?.status === 'active' && session.usage && (
+        <div className="account-usage">
+          <p>
+            剩余额度 {session.usage.remainingCredits.toLocaleString()} /{' '}
+            {session.usage.creditLimit.toLocaleString()}
+          </p>
+          <p>
+            输入 {session.usage.inputTokens.toLocaleString()} · 输出{' '}
+            {session.usage.outputTokens.toLocaleString()} tokens
+          </p>
+          {session.usage.reservedCredits > 0 && (
+            <p>
+              已预留 {session.usage.reservedCredits.toLocaleString()}
+              ，含待核对用量
+            </p>
+          )}
+          {user.accessExpiresAt && (
+            <p>
+              {new Date(user.accessExpiresAt).toLocaleDateString()} 到期
+              {user.accessExpiresAt <= Date.now() ? '，请联系管理员' : ''}
+            </p>
+          )}
+        </div>
       )}
       {error && (
         <p className="account-error" role="alert">

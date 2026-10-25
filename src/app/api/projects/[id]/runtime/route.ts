@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { DockerRuntime } from '@/lib/runtime/docker'
@@ -12,7 +12,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireProjectUser(request, params.id)
     projectById(params.id)
     const health = await runtimeHealth(
       new URL(request.url).searchParams.has('refresh'),
@@ -38,6 +38,7 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireProjectUser(request, params.id)
     const input = baselineSchema
       .extend({ action: z.enum(['start', 'stop', 'remove']) })
       .strict()

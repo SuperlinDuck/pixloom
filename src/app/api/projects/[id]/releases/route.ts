@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { errorResponse, readJson } from '@/lib/http'
@@ -17,7 +17,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireProjectUser(request, params.id)
     projectById(params.id)
     const live = liveRelease(params.id),
       releases = releaseHistory(params.id)
@@ -48,6 +48,7 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireProjectUser(request, params.id)
     const common = { expectedReleaseId: z.string().uuid().nullable() }
     const input = z
       .discriminatedUnion('action', [

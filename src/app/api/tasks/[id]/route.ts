@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireTaskUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { getTask, StoreError } from '@/lib/store'
 import { errorResponse } from '@/lib/http'
@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireTaskUser(request, params.id)
     const { candidateFiles, ...task } = getTask(params.id)
     if (new URL(request.url).searchParams.get('candidate') === '1') {
       if (

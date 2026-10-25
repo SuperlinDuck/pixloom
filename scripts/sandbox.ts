@@ -10,8 +10,11 @@ import { templateFiles } from '../src/lib/runtime/template'
 
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production')
 async function main() {
-  const runtime = new DockerRuntime()
   const command = process.argv[2] || 'doctor'
+  const runtime = new DockerRuntime(
+    undefined,
+    command === 'verify' ? randomUUID() : undefined,
+  )
   const health = await runtime.health()
   console.log(JSON.stringify(health, null, 2))
   if (!health.available) throw new Error(health.reason || 'Docker 不可用')

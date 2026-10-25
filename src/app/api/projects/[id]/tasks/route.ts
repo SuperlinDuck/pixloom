@@ -1,3 +1,4 @@
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { enqueueTask } from '@/lib/store'
 import { errorResponse, readJson } from '@/lib/http'
@@ -12,6 +13,7 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireProjectUser(request, params.id)
     const input = schema.parse(await readJson(request, 64000))
     const agent = initialAgentState(input.provider, input.prompt)
     const task = enqueueTask(

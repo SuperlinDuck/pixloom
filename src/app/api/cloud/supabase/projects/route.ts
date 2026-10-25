@@ -9,8 +9,8 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   try {
-    requireWorkspaceUser(request)
-    const id = connectionId()
+    const user = requireWorkspaceUser(request)
+    const id = connectionId(user?.id)
     if (!id) throw new StoreError('请先连接 Supabase', 409)
     return NextResponse.json(
       await listSupabaseProjects(

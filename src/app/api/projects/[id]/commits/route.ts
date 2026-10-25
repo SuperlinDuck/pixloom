@@ -1,3 +1,4 @@
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { enqueueTask, projectById } from '@/lib/store'
@@ -8,6 +9,7 @@ export async function POST(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireProjectUser(request, params.id)
     const input = baselineSchema
       .extend({ summary: z.string().trim().max(500).optional() })
       .strict()

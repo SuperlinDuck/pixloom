@@ -15,14 +15,15 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
   try {
-    requireWorkspaceUser(request)
-    return NextResponse.json(listProjects())
+    const user = requireWorkspaceUser(request)
+    return NextResponse.json(listProjects(user?.id))
   } catch (e) {
     return errorResponse(e)
   }
 }
 export async function POST(request: Request) {
   try {
+    const user = requireWorkspaceUser(request)
     const input = z
       .union([
         agentRequestSchema.strict(),
@@ -34,11 +35,16 @@ export async function POST(request: Request) {
       const title = Array.from(input.prompt.replace(/\s+/g, ' '))
         .slice(0, 28)
         .join('')
-      const project = createAgentProject(title, await templateFiles(), agent)
+      const project = createAgentProject(
+        title,
+        await templateFiles(),
+        agent,
+        user?.id,
+      )
       return NextResponse.json(project, { status: 201 })
     }
     const { name } = input
-    const project = createProject(name, await templateFiles())
+    const project = createProject(name, await templateFiles(), user?.id)
     if (workerOnline()) enqueueTask(project.id, 'initialize', 0, null)
     return NextResponse.json(project, { status: 201 })
   } catch (e) {

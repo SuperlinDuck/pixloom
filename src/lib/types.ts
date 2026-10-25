@@ -13,6 +13,7 @@ export type SystemStatus = {
 }
 export type SourceFile = { path: string; content: string }
 export type Project = {
+  ownerId?: string | null
   id: string
   name: string
   createdAt: string

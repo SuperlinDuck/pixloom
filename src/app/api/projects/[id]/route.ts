@@ -1,4 +1,4 @@
-import { requireWorkspaceUser } from '@/lib/auth'
+import { requireProjectUser } from '@/lib/auth'
 import { NextResponse } from 'next/server'
 import { getProject, renameProject } from '@/lib/store'
 import { errorResponse, readJson } from '@/lib/http'
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   try {
-    requireWorkspaceUser(request)
+    requireProjectUser(request, params.id)
     return NextResponse.json(getProject(params.id))
   } catch (e) {
     return errorResponse(e)
@@ -20,6 +20,7 @@ export async function PATCH(
   { params }: { params: { id: string } },
 ) {
   try {
+    requireProjectUser(request, params.id)
     const { name } = z
       .object({ name: z.string().trim().min(1).max(80) })
       .strict()

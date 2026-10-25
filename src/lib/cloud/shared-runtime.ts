@@ -488,7 +488,7 @@ async function sharedFile(
 export async function sharedRuntimeHandler(
   request: Request,
   remoteAddress = 'unknown',
-  options: {persistentLogin?: boolean} = {},
+  options: { persistentLogin?: boolean } = {},
 ) {
   try {
     const url = new URL(request.url)
@@ -560,7 +560,9 @@ export async function sharedRuntimeHandler(
                 method: 'POST',
                 body: parseSharedCredentials(body),
               })
-        return response(await establishSession(row, upstream, options.persistentLogin))
+        return response(
+          await establishSession(row, upstream, options.persistentLogin),
+        )
       }
       const session = await authenticateShared(
         row,

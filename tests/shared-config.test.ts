@@ -84,7 +84,7 @@ describe('Shared Cloud default configuration', () => {
       new Response('private-upstream-response-must-not-leak', { status: 502 }),
     )
     await expect(poolRequest(row, '/auth/v1/token')).rejects.toMatchObject({
-      status: 401,
+      status: 502,
       message: '认证失败，请检查凭证、邮件确认状态或稍后重试',
     })
   })

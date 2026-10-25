@@ -1,4 +1,6 @@
 import { artifactManifest } from '../cloud/manifest'
+import { sharedManifest } from '../cloud/manifest'
+import { browserAuth } from '../cloud/browser-auth'
 import { validCloudEndpoint } from '../runtime/preview'
 import { sharedRuntimeHandler } from '../cloud/shared-runtime'
 import { runtimeOrigin } from '../cloud/shared-config'
@@ -59,6 +61,48 @@ export function gatewayHandler(
         } as RequestInit)
         const result = await sharedRuntimeHandler(
           request,
+          req.socket.remoteAddress || 'unknown',
+        )
+        res.writeHead(result.status, Object.fromEntries(result.headers))
+        res.end(Buffer.from(await result.arrayBuffer()))
+        return
+      }
+      if ((req.url || '').startsWith('/__pixloom/auth/')) {
+        const host = req.headers.host || ''
+        const domain = host.split(':')[0]
+        const site =
+          /^[a-z0-9.-]+(?::[0-9]{1,5})?$/.test(host) &&
+          config.enabled &&
+          domain.endsWith('.' + config.domain)
+            ? siteForDomain(domain)
+            : null
+        if (!site) {
+          fail(404)
+          return
+        }
+        const pinned = artifactManifest(site.artifactId)
+        const manifest = sharedManifest(site.projectId, 'production')
+        if (
+          pinned?.format !== 'pixloom-cloud-v2' ||
+          pinned.generation !== manifest.generation
+        ) {
+          fail(404)
+          return
+        }
+        const published = new URL(site.url!)
+        published.hostname = domain
+        const origin = published.origin
+        const request = new Request(new URL(req.url!, origin), {
+          method: req.method,
+          headers: req.headers as Record<string, string>,
+          ...(!['GET', 'HEAD'].includes(req.method || 'GET')
+            ? { body: Readable.toWeb(req), duplex: 'half' }
+            : {}),
+        } as RequestInit)
+        const result = await browserAuth(
+          request,
+          manifest,
+          origin,
           req.socket.remoteAddress || 'unknown',
         )
         res.writeHead(result.status, Object.fromEntries(result.headers))

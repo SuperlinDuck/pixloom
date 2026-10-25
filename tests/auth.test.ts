@@ -155,7 +155,7 @@ describe('Google server login', () => {
       audience: 'test-client',
     })
     const session = response.cookies.get(sessionCookie)!.value
-    expect(currentAccount(authenticated(session))).toEqual({
+    expect(currentAccount(authenticated(session))).toMatchObject({
       name: account.name,
       email: account.email,
       picture: null,
@@ -165,7 +165,7 @@ describe('Google server login', () => {
       .get() as { tokenHash: string }
     expect(stored.tokenHash).not.toBe(session)
     const publicSession = await sessionGET(authenticated(session))
-    expect(await publicSession.json()).toEqual({
+    expect(await publicSession.json()).toMatchObject({
       configured: true,
       required: true,
       user: { name: account.name, email: account.email, picture: null },
@@ -212,11 +212,11 @@ describe('Google server login', () => {
     expect(db().prepare('SELECT * FROM auth_sessions').all()).toHaveLength(0)
   })
 
-  it('does not allow another Google identity to take over existing workspace data', () => {
+  it('allows another identity to sign in but requires invitation activation', () => {
     const session = signInAccount(account)
-    expect(() =>
-      signInAccount({ ...account, subject: 'different-account' }),
-    ).toThrow('已绑定其他')
+    const other = signInAccount({ ...account, subject: 'different-account' })
+    expect(currentAccount(authenticated(other))?.status).toBe('pending')
+    expect(() => requireWorkspaceUser(authenticated(other))).toThrow('邀请码')
     expect(() => requireWorkspaceUser(authenticated(session))).not.toThrow()
     signInAccount({ ...account, name: '更新名称' })
     expect(currentAccount(authenticated(session))?.name).toBe('更新名称')

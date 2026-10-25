@@ -17,6 +17,7 @@ export type LegacyCloudManifest = {
 }
 export type SharedCloudManifest = {
   format: 'pixloom-cloud-v2'
+  authMode?: 'persistent-v1'
   projectId: string
   mode: 'managed'
   environment: CloudEnvironment

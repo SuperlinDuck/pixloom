@@ -1,8 +1,10 @@
+import { assertProductionConfig } from '../src/lib/platform-config'
 import { loadEnvConfig } from '@next/env'
 import { publicationConfig, caddyConfig } from '../src/lib/publication/config'
 import { createPublicationGateway } from '../src/lib/publication/gateway'
 
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production')
+assertProductionConfig()
 const config = publicationConfig()
 if (process.argv.includes('--caddy-config'))
   process.stdout.write(caddyConfig(config))

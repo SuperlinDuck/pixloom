@@ -1,0 +1,7 @@
+[Unit]
+Description=Pixloom cold backup
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /etc/pixloom/backup.sh
+UMask=0077

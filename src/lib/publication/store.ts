@@ -1,3 +1,5 @@
+import { ownerOf } from '../tenancy'
+import { limit } from '../platform-config'
 import { randomUUID } from 'node:crypto'
 import {
   db,
@@ -117,6 +119,20 @@ export function enqueuePublication(
         .get(artifactId, projectId, version.hash, version.templateId)
     )
       throw new StoreError('发布产物不存在或不匹配', 409)
+    const userId = ownerOf(projectId)
+    if (userId && input.action !== 'unpublish' && !live) {
+      const count = (
+        db()
+          .prepare(
+            `SELECT count(DISTINCT p.id) AS n FROM projects p WHERE p.ownerId=? AND p.id!=? AND
+        (EXISTS (SELECT 1 FROM published_sites s WHERE s.projectId=p.id) OR
+         EXISTS (SELECT 1 FROM tasks t WHERE t.projectId=p.id AND t.kind='publish' AND t.status IN ('queued','running')))`,
+          )
+          .get(userId, projectId) as { n: number }
+      ).n
+      if (count >= limit('PIXLOOM_MAX_PUBLISHED_PER_USER', 3))
+        throw new StoreError('已发布应用数量已达上限', 429)
+    }
     const task = insertTask(
       projectId,
       input.action === 'unpublish' ? 'unpublish' : 'publish',
