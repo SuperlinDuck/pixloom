@@ -75,9 +75,20 @@ install -d -o root -g pixloom -m 750 /etc/pixloom
 
 首次迁移不要创建 `/srv/pixloom/app` 普通目录，也不要提前启动新服务；app 链接由首次自动部署创建。
 
-### 3. 上传准备代码并安装依赖（本机 → VPS）
+### 3. 首次获取部署脚本并安装依赖（VPS，root）
 
-在自己的电脑、当前项目目录执行，把当前功能分支已提交的代码打包上传。将 VPS_IP 替换为实际地址；SSH 不是 22 端口时给 scp 增加 `-P 端口`。
+这一步只做一次初始化：把控制器脚本、服务配置、环境模板和生成 Caddy 配置所需的代码放到 bootstrap。Actions 随后会自动上传正式 release、构建和启动应用；它当前需要调用第 4 步安装的 `/usr/local/sbin/pixloom-deploy`，因此不能省略控制器的首次安装。bootstrap 本身不会成为线上版本。
+
+**优先复用服务器旧仓库，不需要从电脑手动上传。** 旧流程使用 `/var/www/pixloom`，如果该仓库仍在，并且原部署用户 deploy 仍可访问 GitHub，在 VPS root 终端执行：
+
+```sh
+runuser -u deploy -- git -C /var/www/pixloom fetch origin codex/atoms-platform:refs/remotes/origin/codex/atoms-platform
+runuser -u deploy -- git -C /var/www/pixloom archive --format=tar refs/remotes/origin/codex/atoms-platform > /root/pixloom-bootstrap.tar
+```
+
+这只更新 Git 引用并导出功能分支源码，不 checkout、不 pull，也不改变旧站的工作目录文件。若旧仓库属于别的账号，使用那个账号获取代码；不要改用 root 给旧仓库新增 GitHub 密钥或全局关闭 Git 所有权检查。任一命令失败时先停止，不要解包不完整的源码包。
+
+仅当旧仓库已删除或服务器不能访问 GitHub 时，才使用下面的备用方式：在自己的电脑、当前项目目录打包上传。将 VPS_IP 替换为实际地址；SSH 不是 22 端口时给 scp 增加 `-P 端口`。
 
 ```sh
 # 本机执行。先确认处于 codex/atoms-platform，且所需修改均已提交。
@@ -87,7 +98,7 @@ git archive --format=tar --output=/tmp/pixloom-bootstrap.tar HEAD
 scp /tmp/pixloom-bootstrap.tar root@VPS_IP:/root/pixloom-bootstrap.tar
 ```
 
-回到 VPS 的 root 终端执行：
+以上两种方式任选一种。源码包准备好后，在 VPS 的 root 终端继续执行：
 
 ```sh
 tar --extract --file=/root/pixloom-bootstrap.tar --directory=/srv/pixloom/bootstrap --no-same-owner --no-same-permissions
@@ -99,7 +110,7 @@ pnpm exec playwright install-deps chromium
 runuser -u pixloom -- env HOME=/srv/pixloom PATH=/usr/local/bin:/usr/bin:/bin pnpm exec playwright install chromium
 ```
 
-bootstrap 是独立准备目录，不会替代旧站 checkout。root SSH 不可用时，可先通过现有 deploy 上传，再由管理员复制源码包到 `/root/pixloom-bootstrap.tar` 后执行解包步骤。不要上传开发 `.env.local`、node_modules 或运行中的 SQLite。
+bootstrap 是独立准备目录，不会替代旧站 checkout。备用上传方式中，root SSH 不可用时可先通过现有 deploy 上传，再由管理员复制源码包到 `/root/pixloom-bootstrap.tar` 后解包。不要上传开发 `.env.local`、node_modules 或运行中的 SQLite。首次准备完成后，日常发布直接合并 main 触发 Actions，无需重复获取 bootstrap 或手动上传应用代码；只有控制器自身更新时，仍需按第 4 步由管理员更新安装。
 
 ### 4. 安装控制器并授权 deploy（VPS，root）
 
