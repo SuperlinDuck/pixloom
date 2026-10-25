@@ -1,89 +1,18 @@
-# VPS 邀请内测部署与运维
+# VPS 上线后运维参考
 
-适用于单机 Linux、SQLite、一个串行 Worker 的小规模内测。代码具备邀请、项目隔离、用量账本、容器回收和生产检查；真实 VPS、Google、模型和 Supabase 的最终验收需要在目标机器执行。不要复制本机的 node_modules、.next 或正在写入的 SQLite。
+首次部署和旧 PM2 迁移请只按 [VPS 部署操作指南](continuous-deployment.md) 的第 1–9 步执行。本文件不再提供第二套安装、构建或启动服务流程，仅供上线后管理用户、额度、容器和备份时查阅。
 
-自动部署、现有 PM2 迁移及 GitHub Secrets 配置见 [GitHub Actions 自动部署](continuous-deployment.md)。启用自动部署时 app 是版本目录的符号链接，首次准备不能提前启动缺少 app 链接的三个服务。
-
-## 1. 安装与目录
-
-安装 Node.js 24、package.json 声明的 pnpm、Docker Engine 和 Caddy。复用现有 `deploy` 作为 SSH 部署账号，另建 `pixloom` 运行服务，无需为 pixloom 配置 SSH 登录或免密 sudo。以下示例约定代码在 `/srv/pixloom/app`，服务用户 pixloom 的 HOME 为 `/srv/pixloom`。systemd 的 PATH 使用 `/usr/local/bin:/usr/bin:/bin`，需确认 node、pnpm 位于其中。按 VPS 实际内存调整服务资源限制，给系统、Docker 容器和 Caddy 留出空间。首次安装使用 root 或已有管理权限的运维账号。
+管理 systemd、备份和日志使用 root；操作应用数据库使用 pixloom。下方 `pnpm admin` 命令默认在 `/srv/pixloom/app`、以 pixloom 身份执行。若当前是 root，可先执行：
 
 ```sh
-sudo useradd --system --create-home --home-dir /srv/pixloom --shell /bin/bash pixloom
-sudo usermod -aG docker pixloom
-# deploy 需要穿过父目录才能访问自己的 incoming；私有子目录仍保持 0700。
-sudo chmod 755 /srv/pixloom
-sudo install -d -o pixloom -g pixloom -m 700 /srv/pixloom/data /srv/pixloom/published
-sudo install -d -o root -g pixloom -m 750 /etc/pixloom
+runuser -l pixloom
+cd /srv/pixloom/app
+export PATH=/usr/local/bin:/usr/bin:/bin
 ```
 
-自动部署时，deploy 只写入 incoming，由 root 控制器创建 release、切换 app 链接，并以 pixloom 安装依赖和构建；上传目录和指定命令的 sudo 授权按 [自动部署文档](continuous-deployment.md) 配置。手动部署时，以 pixloom 在代码目录安装依赖和构建。不要把 systemd 的 User/Group 替换成 deploy，也不要递归改变整棵 `/srv/pixloom` 的所有权。当前环境查询接口也需要 Docker，所以 Web 和 Worker 都有 Docker 组权限。Docker 控制权属于受信任控制面，不能把 Socket 挂入生成应用或暴露到公网。
+完成数据库操作后执行 `exit` 回到 root，再管理 systemd。不要以 root 运行 Web、Worker、依赖安装或构建。
 
-## 2. 域名与凭证
-
-DNS 增加工作台 `pixloom.io`、Cloud `cloud.pixloom.io`、发布通配 `*.apps.pixloom.io` 的 A 记录。没有 IPv6 服务时不要保留冲突 AAAA。公网开放 80/443，SSH 使用密钥并限制来源；3000、4180、Docker、Caddy 2019 仅在本机使用。
-
-把 `.env.example` 中需要的配置放入 `/etc/pixloom/pixloom.env`，权限 `root:pixloom 0640`。systemd 会注入这些变量；手动运行命令时也必须指向同样的数据目录和配置，不能误用仓库自己的 `.env.local`。生产部署不要携带开发 `.env.local`。
-
-```dotenv
-NODE_ENV=production
-PIXLOOM_AUTH_URL=https://pixloom.io
-PIXLOOM_ADMIN_EMAILS=your-google-email@example.com
-PIXLOOM_GOOGLE_CLIENT_ID=填写真实客户端ID
-PIXLOOM_GOOGLE_CLIENT_SECRET=填写真实客户端密钥
-PIXLOOM_DATA_DIR=/srv/pixloom/data
-PIXLOOM_PUBLISH_DIR=/srv/pixloom/published
-PIXLOOM_PUBLISH_ENABLED=1
-PIXLOOM_PUBLISH_DOMAIN=apps.pixloom.io
-PIXLOOM_PUBLISH_PORT=443
-PIXLOOM_GATEWAY_PORT=4180
-PIXLOOM_CLOUD_RUNTIME_URL=https://cloud.pixloom.io
-```
-
-再配置所用模型、`PIXLOOM_CLOUD_ENCRYPTION_KEY` 和 Supabase 开发/生产池；完整变量说明见 `.env.example`。凭证不要使用 `NEXT_PUBLIC_` 前缀。Google 的 Web OAuth 回调为 `https://pixloom.io/api/auth/callback/google`，测试状态下添加受邀测试邮箱。自有 Supabase 回调为 `https://pixloom.io/api/cloud/supabase/callback`。
-
-HTTPS 平台会话使用 `__Host-` Cookie，防止发布子域设置同名 Domain Cookie。升级前的 HTTPS 平台登录需重新进行。
-
-生产缺少 Google 凭证、HTTPS 来源、管理员或绝对数据/发布目录时，`pnpm start/worker/gateway` 拒绝启动。不要用 `next start` 绕过启动检查。Cloud 网关必须是浏览器可访问的 HTTPS 来源；变更地址后需要重新构建应用，历史产物保留原地址。
-
-## 3. 构建与服务
-
-以服务用户安装 Chromium，确保缓存位于该用户 HOME；Linux 系统依赖安装可能需要 sudo。浏览器必须能在该非 root 用户下启用 sandbox，不要改为 `--no-sandbox`。
-
-```sh
-pnpm install --frozen-lockfile
-pnpm exec playwright install --with-deps chromium
-pnpm sandbox:prepare
-pnpm test
-pnpm typecheck
-pnpm build
-```
-
-systemd 文件包含 Web 2 GiB、Worker 3 GiB/2 CPU、Gateway 1 GiB 的资源上限，Worker 的 Chromium 子进程计入 Worker cgroup。构建容器另有 1 CPU、512 MiB、128 进程上限，不计入 Worker cgroup。按实际内存预算调整，不把这些上限视为机器容量建议。
-
-```sh
-sudo install -o root -g root -m 700 deploy/backup.sh /etc/pixloom/backup.sh
-sudo install -m 644 deploy/pixloom-*.service deploy/pixloom-*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now pixloom-web pixloom-worker pixloom-gateway
-```
-
-不要同时启动第二个 Worker，也不要在生产目录运行 watch 开发进程。
-
-## 4. Caddy
-
-在注入生产配置的环境中生成配置：
-
-```sh
-pnpm --silent gateway:config > /tmp/pixloom-Caddyfile
-caddy validate --config /tmp/pixloom-Caddyfile --adapter caddyfile
-```
-
-输出包含 HTTPS 工作台到 3000、发布/Cloud 到 4180、Cloud HTTP 跳转、发布按需证书白名单。首次部署安装为 `/etc/caddy/Caddyfile`；已有站点时合并唯一的全局配置块，保留原站点，校验后重载。
-
-Caddy 默认保留工作台 Host。不要让公网直接连接 upstream，不信任来自任意客户端的转发头。不要记录完整预览 `_grant/<token>` URL；如启用访问日志，先配置路径脱敏。证书目录通常在 `/var/lib/caddy`，应持久化并纳入独立备份。
-
-## 5. 迁移、邀请和额度
+## 1. 迁移、邀请和额度
 
 第一次打开旧数据库时添加用户、项目归属及账本等表。原 `auth_account` 迁移为管理员，旧会话和无主项目归其所有；没有旧账号的本地项目只会被指定管理员认领。全新生产库不允许“首个访问者自动成为管理员”；只有配置的已验证 Google 邮箱获得管理员身份。旧表保留作迁移审计。数据库有新增列，回滚旧代码必须恢复匹配的升级前备份。
 
@@ -116,7 +45,7 @@ PIXLOOM_DATA_DIR=/srv/pixloom/data pnpm admin ledger:settle 记录ID 实际输�
 
 用户额度耗尽后仍可查看、编辑、构建和导出已有项目；体验过期或账号停用则禁止工作空间访问。每人最多十项目、两活跃任务、每小时三十任务、三个上线应用，平台队列最多三十任务。源码/产物遵循原项目 128 MiB 限制，另有账号 512 MiB、平台逻辑存储 10 GiB 和磁盘最低空闲 512 MiB；平台逻辑预算保守地为产物计算双份，预留发布副本空间，不等同物理磁盘精确用量。
 
-## 6. 预览与环境回收
+## 2. 预览与环境回收
 
 预览为用户私有：项目所有者通过工作台获取十五分钟资源凭证，opaque iframe 用它加载模块、CSS 和图片；可信外层每五分钟续期同一凭证，不重载应用。退出、会话失效、用户停用、体验到期立即阻止资源请求。长时间后台停留导致凭证过期时，点击“重新加载预览”。此凭证是短期 bearer，不能当作公开分享链接。发布站点仍公开，应用自己的 Cloud 登录独立于平台账号。
 
@@ -124,7 +53,7 @@ Worker 每三十秒扫描，执行环境默认空闲五分钟后移除；达到�
 
 新容器带数据目录作用域标签，只枚举该实例的遗留环境，避免误删其他部署或验证容器。升级前已有、且没有数据库记录的旧容器需要管理员检查后单独清理；不要全局 docker prune。
 
-## 7. 备份、监测与升级
+## 3. 备份、监测与升级
 
 ```sh
 sudo systemctl enable --now pixloom-backup.timer pixloom-monitor.timer
@@ -139,9 +68,9 @@ sudo journalctl -u pixloom-worker -f
 
 每五分钟的 ops 检查覆盖配置、SQLite、磁盘、内存、Web/Gateway、Worker 心跳、Docker 镜像、队列积压、每日预算及超过十五分钟的待核对用量。异常返回非零并写入 journald。需要把失败单元和公网 HTTPS 探活接入自己的告警系统；此仓库不配置外部收件人或通知凭证。journald 配置日志大小和保留时间，Docker 已使用有限 local 日志。
 
-升级顺序：暂停 AI/排空队列 → 冷备 → 保留旧代码/镜像 → 新代码安装/测试/构建 → 重启三个服务 → 冒烟验收 → 恢复 AI。构建失败不切换运行版本，回滚恢复匹配代码和数据库快照，避免把新增数据静默丢弃。
+日常发布继续走 main 的 GitHub Actions，由控制器构建、排空队列、冷备并切换服务，具体顺序和失败恢复见 [部署操作指南](continuous-deployment.md)。不要在 app 目录 git pull、直接构建或并行启动第二个 Worker。开放流量后的故障不能自动恢复旧数据库，避免丢失新增用户数据。
 
-## 8. 放行检查
+## 4. 放行检查
 
 - 两个真实 Google 账号：未激活受限、邀请码只能按配置核销、互相不能读写项目/任务/版本/导出/Cloud。
 - 小额邀请码：模型成功、自动修复、失败、取消和 Worker 重启均正确结算或保留预留；额度耗尽仍可读取/导出。

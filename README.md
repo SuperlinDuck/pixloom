@@ -1,6 +1,6 @@
 # Pixloom
 
-React/Vite 多文件工作空间：编辑源码、构建预览、查看差异并恢复历史版本。支持本地开发与单机 VPS 邀请内测，已接入 Gemini / GPT Coding Agent 工具循环。生产步骤见 [VPS 部署与运维](docs/vps-deployment.md)。
+React/Vite 多文件工作空间：编辑源码、构建预览、查看差异并恢复历史版本。支持本地开发与单机 VPS 邀请内测，已接入 Gemini / GPT Coding Agent 工具循环。首次生产部署只按 [VPS 部署操作指南](docs/continuous-deployment.md) 执行。
 
 ## 启动
 
@@ -129,8 +129,8 @@ pnpm publish:verify    # 临时数据库 + Docker + 真实 Caddy + 发布/更新
 
 Web 默认绑定 `127.0.0.1`，API 允许本机及明确配置的工作台来源，并拒绝跨站管理请求；受限预览以短期资源凭证兼容 opaque iframe。生产由 Caddy 公开 HTTPS 工作台与独立应用网关，内部端口不对外开放。Worker 定期回收空闲容器，已有静态预览不受影响。
 
-- [GitHub Actions 自动部署与旧 PM2 迁移](docs/continuous-deployment.md)
-- [VPS 邀请内测部署与运维](docs/vps-deployment.md)
+- [VPS 部署操作指南（首次部署、Actions、旧 PM2 迁移）](docs/continuous-deployment.md)
+- [上线后运维参考（邀请码、额度、备份）](docs/vps-deployment.md)
 - [共享池配置与运维](docs/cloud-shared.md)
 - [独立后端与自有 Supabase](docs/cloud.md)
 - [下一步实施计划](docs/roadmap.md)
