@@ -36,7 +36,16 @@ async function perform(
   step: BrowserStep,
   timeout: number,
 ) {
-  const target = frame.locator(step.selector)
+  let target = frame.locator(step.selector)
+  if (step.action === 'click' && step.value.trim()) {
+    // Treat the supplied label as literal text, never as a selector or regex.
+    const label = step.value
+      .trim()
+      .split(/\s+/)
+      .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('\\s+')
+    target = target.filter({ hasText: new RegExp(`^\\s*${label}\\s*$`) })
+  }
   switch (step.action) {
     case 'click':
       return target.click()
@@ -125,7 +134,7 @@ export const verifyBrowser: BrowserVerifier = async (
     })
   } catch {
     throw new Error(
-      '浏览器验证环境不可用，请执行 pnpm browser:install 或安装 Google Chrome；未保存候选版本',
+      '浏览器验证环境不可用，请执行 pnpm browser:install 或安装 Google Chrome',
     )
   }
   let closing = false
@@ -318,7 +327,13 @@ export const verifyBrowser: BrowserVerifier = async (
     await page.waitForTimeout(150)
   } catch (error) {
     signal.throwIfAborted()
-    record((error as Error).message)
+    const message = (error as Error).message
+    if (message.includes('strict mode violation')) {
+      record(
+        `第 ${completedSteps + 1} 步的选择器匹配了多个元素。click 可用 value 指定完整按钮文字；其他动作请使用唯一 id、data-testid 或容器范围（例如 .modal-body select）。:nth-of-type(1) 按各自父元素计数，并不表示整个页面的第一个匹配项。请检查剩余步骤中的同类选择器并一起修复，不要任意取第一个元素。`,
+      )
+    }
+    record(message)
   } finally {
     closing = true
     clearTimeout(deadline)

@@ -47,7 +47,7 @@ describe('native coding protocols', () => {
       )
     vi.stubGlobal('fetch', fetcher)
     const session = geminiProvider.createSession({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-3.8-flash',
       prompt: 'todo',
       signal: new AbortController().signal,
     })

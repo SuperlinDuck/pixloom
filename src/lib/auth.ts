@@ -299,6 +299,20 @@ export function requireSignedIn(request: Request) {
   if (user.status === 'disabled') throw new StoreError('账号已停用', 403)
   return user
 }
+export function canManagePlatform(user: PlatformUser | null) {
+  return !!(
+    user &&
+    user.role === 'admin' &&
+    user.status === 'active' &&
+    (user.accessExpiresAt === null || user.accessExpiresAt > Date.now()) &&
+    adminEmails().includes(user.email.trim().toLowerCase())
+  )
+}
+export function requireAdmin(request: Request) {
+  const user = requireSignedIn(request)
+  if (!canManagePlatform(user)) throw new StoreError('仅管理员可访问', 403)
+  return user
+}
 export function requireWorkspaceUser(request: Request) {
   if (maintenanceMode()) throw new StoreError('平台正在升级，请稍后重试', 503)
   if (!authRequired()) return undefined

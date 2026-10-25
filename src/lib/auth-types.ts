@@ -9,6 +9,7 @@ export type AccountUser = {
 }
 
 export type AccountSession = {
+  canManage?: boolean
   configured: boolean
   required: boolean
   user: AccountUser | null
