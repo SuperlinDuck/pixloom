@@ -45,7 +45,7 @@ import { PublicationFiles } from '../src/lib/publication/files'
 import { gatewayHandler } from '../src/lib/publication/gateway'
 import { runTask } from '../src/lib/runner'
 import { templateFiles } from '../src/lib/runtime/template'
-import { GET, POST } from '../src/app/api/projects/[id]/releases/route'
+import { GET, POST, PATCH } from '../src/app/api/projects/[id]/releases/route'
 import type { Release, SourceFile, Task } from '../src/lib/types'
 
 vi.mock('node:crypto', async (importOriginal) => {
@@ -278,6 +278,229 @@ describe('stable six-character public IDs', () => {
     await execute(claimTask()!)
     expect((await serve(migrated.domain)).status).toBe(404)
     expect((await serve(legacy)).status).toBe(404)
+  })
+})
+
+describe('custom publication prefixes', () => {
+  const request = (body: unknown, method = 'PATCH') =>
+    new Request('http://localhost/api', {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  const rename = (projectId: string, prefix: string, extra = {}) =>
+    PATCH(
+      request({
+        prefix,
+        expectedPrefix: projectPublicId(projectId),
+        expectedReleaseId: liveRelease(projectId)?.id || null,
+        ...extra,
+      }),
+      { params: { id: projectId } },
+    )
+
+  it('accepts a custom prefix directly on publish and normalizes case and whitespace', async () => {
+    const { project, v1 } = initial()
+    acquireWorker('custom-api')
+    const response = await POST(
+      request(
+        {
+          action: 'publish',
+          versionId: v1.id,
+          expectedReleaseId: null,
+          prefix: ' My-App ',
+          expectedPrefix: projectPublicId(project.id),
+        },
+        'POST',
+      ),
+      { params: { id: project.id } },
+    )
+    expect(response.status).toBe(202)
+    const { release } = await response.json()
+    expect(release.domain).toBe('my-app.apps.localhost')
+    await execute(claimTask()!)
+    expect((await serve(release.domain)).status).toBe(200)
+    expect(liveRelease(project.id)?.url).toBe(
+      'http://my-app.apps.localhost:4180',
+    )
+  })
+
+  it('reserves unpublished prefixes, prevents case-insensitive duplicates and retries random collisions', async () => {
+    const first = initial(),
+      second = initial()
+    expect((await rename(first.project.id, '000000')).status).toBe(200)
+    vi.mocked(randomInt)
+      .mockImplementationOnce(() => 0)
+      .mockImplementationOnce(() => 1)
+    const third = createProject('collision', files)
+    expect(projectPublicId(third.id)).toBe('000001')
+    const duplicate = await rename(second.project.id, '000000')
+    expect(duplicate.status).toBe(409)
+    expect((await duplicate.json()).error).toContain('已被使用')
+    expect((await rename(first.project.id, 'My-App')).status).toBe(200)
+    expect((await rename(second.project.id, 'MY-APP')).status).toBe(409)
+    expect(() =>
+      db()
+        .prepare('UPDATE project_public_ids SET shortId=? WHERE projectId=?')
+        .run('my-app', second.project.id),
+    ).toThrow('UNIQUE')
+    expect((await rename(second.project.id, 'my-app-2')).status).toBe(200)
+    db().close()
+    delete (globalThis as { pixloomDb?: unknown }).pixloomDb
+    expect(projectPublicId(first.project.id)).toBe('my-app')
+    expect(projectPublicId(second.project.id)).toBe('my-app-2')
+  })
+
+  it('allows only one of two concurrent requests to claim the same prefix', async () => {
+    const first = initial(),
+      second = initial()
+    const responses = await Promise.all([
+      rename(first.project.id, 'same-name'),
+      rename(second.project.id, 'SAME-NAME'),
+    ])
+    expect(responses.map((response) => response.status).sort()).toEqual([
+      200, 409,
+    ])
+    expect(
+      [
+        projectPublicId(first.project.id),
+        projectPublicId(second.project.id),
+      ].filter((prefix) => prefix === 'same-name'),
+    ).toHaveLength(1)
+  })
+
+  it.each([
+    '',
+    '-app',
+    'app-',
+    'my_app',
+    'app.test',
+    'https://app',
+    '中文',
+    'x'.repeat(64),
+    `p-${'a'.repeat(32)}`,
+  ])('rejects invalid or reserved prefix %s', async (prefix) => {
+    const { project } = initial()
+    const before = projectPublicId(project.id)
+    expect((await rename(project.id, prefix)).status).toBe(400)
+    expect(projectPublicId(project.id)).toBe(before)
+  })
+
+  it('switches live routing and certificate authorization without rebuilding; rollback retains the new prefix', async () => {
+    const { project, v1 } = initial()
+    const first = await publish(project.id, v1.id)
+    const response = await rename(project.id, 'live-app')
+    expect(response.status).toBe(200)
+    const result = await response.json()
+    expect(result.live.id).toBe(first.id)
+    expect(result.live.artifactId).toBe(first.artifactId)
+    expect(result.live.domain).toBe('live-app.apps.localhost')
+    expect(result.releases[0].domain).toBe(first.domain)
+    expect((await serve(first.domain)).status).toBe(404)
+    expect((await serve(result.live.domain)).body.toString()).toContain('one')
+    for (const [domain, expected] of [
+      [first.domain, 403],
+      [result.live.domain, 200],
+    ] as const)
+      expect(
+        (await serve('127.0.0.1', `/_pixloom/allow-domain?domain=${domain}`))
+          .status,
+      ).toBe(expected)
+    const legacy = `p-${project.id.replace(/-/g, '')}.apps.localhost`
+    expect((await serve(legacy)).status).toBe(200)
+    updateDraft(project.id, getDraft(project.id).revision, [
+      { type: 'write', path: 'src/App.jsx', content: 'export default 2' },
+    ])
+    const v2 = version(project.id, 'two')!
+    const second = await publish(project.id, v2.id)
+    enqueuePublication(
+      project.id,
+      { action: 'rollback', releaseId: first.id, expectedReleaseId: second.id },
+      publicationTarget(project.id),
+    )
+    await execute(claimTask()!)
+    expect(liveRelease(project.id)?.domain).toBe(result.live.domain)
+    expect((await serve(result.live.domain)).body.toString()).toContain('one')
+    enqueuePublication(
+      project.id,
+      { action: 'unpublish', expectedReleaseId: liveRelease(project.id)!.id },
+      null,
+    )
+    await execute(claimTask()!)
+    expect((await serve(result.live.domain)).status).toBe(404)
+    expect((await serve(legacy)).status).toBe(404)
+    // Taking a site offline keeps its prefix reserved for republishing.
+    const other = initial()
+    expect((await rename(other.project.id, 'live-app')).status).toBe(409)
+  })
+
+  it('rejects stale edits and active tasks, and rolls back a prefix claim when enqueue fails', async () => {
+    const { project, v1 } = initial()
+    const before = projectPublicId(project.id)
+    expect((await rename(project.id, 'new-prefix')).status).toBe(200)
+    expect(
+      (await rename(project.id, 'stale-prefix', { expectedPrefix: before }))
+        .status,
+    ).toBe(409)
+    expect(
+      (
+        await rename(project.id, 'stale-release', {
+          expectedReleaseId: randomUUID(),
+        })
+      ).status,
+    ).toBe(409)
+    acquireWorker('custom-api')
+    expect(
+      (
+        await POST(
+          request(
+            {
+              action: 'publish',
+              versionId: randomUUID(),
+              expectedReleaseId: null,
+              prefix: 'failed-claim',
+              expectedPrefix: 'new-prefix',
+            },
+            'POST',
+          ),
+          { params: { id: project.id } },
+        )
+      ).status,
+    ).toBe(404)
+    expect(projectPublicId(project.id)).toBe('new-prefix')
+    const queued = queue(project.id, v1.id)
+    expect((await rename(project.id, 'blocked')).status).toBe(409)
+    cancelTask(queued.task.id)
+    expect((await rename(project.id, 'after-cancel')).status).toBe(200)
+    // A request constructed before the edit cannot publish under the stale address.
+    expect(() =>
+      enqueuePublication(
+        project.id,
+        { action: 'publish', versionId: v1.id, expectedReleaseId: null },
+        publicationTarget(project.id, publicationConfig(), 'new-prefix'),
+      ),
+    ).toThrow('域名前缀已变化')
+  })
+
+  it('upgrades the old six-character database constraint while preserving IDs and uniqueness', async () => {
+    const first = initial(),
+      second = initial()
+    const before = projectPublicId(first.project.id)
+    db().exec(`BEGIN IMMEDIATE;
+      CREATE TABLE project_public_ids_old (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,shortId TEXT NOT NULL UNIQUE CHECK(length(shortId)=6 AND shortId NOT GLOB '*[^a-z0-9]*'));
+      INSERT INTO project_public_ids_old SELECT * FROM project_public_ids;
+      DROP TABLE project_public_ids;
+      ALTER TABLE project_public_ids_old RENAME TO project_public_ids;
+      COMMIT;`)
+    db().close()
+    delete (globalThis as { pixloomDb?: unknown }).pixloomDb
+    expect(projectPublicId(first.project.id)).toBe(before)
+    expect(
+      (await rename(first.project.id, 'migrated-custom-prefix')).status,
+    ).toBe(200)
+    expect(
+      (await rename(second.project.id, 'migrated-custom-prefix')).status,
+    ).toBe(409)
   })
 })
 

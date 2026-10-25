@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { createProject, db } from '../src/lib/store'
 import { configured } from '../src/lib/cloud/config'
 import {
@@ -20,12 +21,30 @@ import {
 } from '../src/lib/cloud/shared-auth'
 import { cloudStatus, reserveBinding } from '../src/lib/cloud/store'
 import { saveConnection } from '../src/lib/cloud/oauth'
+import { GET as confirmationGET } from '../src/app/cloud/auth/confirmed/[[...scope]]/route'
+import { sharedManifest } from '../src/lib/cloud/manifest'
+import { sharedClientSource } from '../src/lib/cloud/shared-client'
 
 const files = [
   { path: 'index.html', content: '<div id="root"></div>' },
   { path: 'src/main.jsx', content: 'console.log("test")' },
 ]
 let directory: string
+function previewArtifact(projectId: string) {
+  const id = randomUUID()
+  db()
+    .prepare('INSERT INTO preview_artifacts VALUES (?,?,?,?,?,?)')
+    .run(id, projectId, 'fixture', 'fixture', 100, new Date().toISOString())
+  db()
+    .prepare('INSERT INTO preview_assets VALUES (?,?,?,?)')
+    .run(
+      id,
+      'pixloom-cloud.json',
+      'application/json',
+      Buffer.from(JSON.stringify(sharedManifest(projectId, 'development'))),
+    )
+  return id
+}
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'pixloom-shared-config-'))
   vi.stubEnv('PIXLOOM_DATA_DIR', directory)
@@ -52,6 +71,202 @@ afterEach(async () => {
   await rm(directory, { recursive: true, force: true })
 })
 describe('Shared Cloud default configuration', () => {
+  it('pins signup email redirects to a trusted confirmation page without returning upstream tokens', async () => {
+    vi.stubEnv('PIXLOOM_AUTH_URL', 'https://pixloom.test')
+    const project = createProject('Email redirect', files)
+    reserveSharedEnvironment(project.id, 'development')
+    db()
+      .prepare(
+        "UPDATE cloud_environments_v2 SET status='ready' WHERE projectId=?",
+      )
+      .run(project.id)
+    const generation = sharedApp(project.id)!.generation
+    const artifactId = previewArtifact(project.id)
+    // A newer build must not replace the specific preview used at signup.
+    previewArtifact(project.id)
+    const endpoint = `${runtimeOrigin()}/cloud/v2/apps/${project.id}/environments/development/${generation}`
+    const upstream = vi.fn().mockResolvedValue(
+      Response.json({
+        access_token: 'private-access',
+        refresh_token: 'private-refresh',
+      }),
+    )
+    vi.stubGlobal('fetch', upstream)
+    const response = await sharedRuntimeHandler(
+      new Request(endpoint + '/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://untrusted.test',
+        },
+        body: JSON.stringify({
+          email: 'test@example.com',
+          password: 'valid-password',
+          previewArtifactId: artifactId,
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const signupUrl = new URL(upstream.mock.calls[0][0])
+    expect(signupUrl.pathname).toBe('/auth/v1/signup')
+    expect(signupUrl.searchParams.get('redirect_to')).toBe(
+      `https://pixloom.test/cloud/auth/confirmed/${project.id}/development/${generation}/${artifactId}`,
+    )
+    expect(upstream.mock.calls[0][1].body).toBe(
+      JSON.stringify({ email: 'test@example.com', password: 'valid-password' }),
+    )
+    expect(await response.text()).not.toContain('private-')
+    expect(db().prepare('SELECT * FROM cloud_sessions_v2').all()).toEqual([])
+    const landing = confirmationGET(
+      new Request('https://pixloom.test/cloud/auth/confirmed'),
+      {
+        params: { scope: [project.id, 'development', generation, artifactId] },
+      },
+    )
+    expect(landing.headers.get('referrer-policy')).toBe('no-referrer')
+    expect(landing.headers.get('cache-control')).toBe('no-store')
+    const html = await landing.text()
+    expect(html).toContain(`href="https://pixloom.test/preview/${artifactId}"`)
+    expect(html).toContain('location.replace(target)')
+    for (const scope of [
+      undefined,
+      [project.id, 'development', 'f'.repeat(36)],
+      ['https://evil.test'],
+      [project.id, 'development', generation, randomUUID()],
+    ]) {
+      const fallback = confirmationGET(
+        new Request(
+          'https://pixloom.test/cloud/auth/confirmed?next=https://evil.test',
+        ),
+        { params: { scope } },
+      )
+      const html = await fallback.text()
+      expect(html).not.toContain('href=')
+      expect(html).not.toContain('evil.test')
+    }
+    upstream.mockClear()
+    const invalid = await sharedRuntimeHandler(
+      new Request(endpoint + '/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'test@example.com',
+          password: 'valid-password',
+          previewArtifactId: randomUUID(),
+        }),
+      }),
+    )
+    expect(invalid.status).toBe(400)
+    expect(upstream).not.toHaveBeenCalled()
+  })
+
+  it('takes the dynamic preview id from the client URL without forwarding preview grants', async () => {
+    const projectId = randomUUID(),
+      generation = randomUUID(),
+      artifactId = randomUUID()
+    const endpoint = `https://cloud.test/cloud/v2/apps/${projectId}/environments/development/${generation}`
+    for (const pathname of [
+      `/api/previews/${artifactId}/index.html`,
+      `/api/previews/${artifactId}/_grant/private-grant/index.html`,
+      '/',
+    ]) {
+      const fetch = vi
+        .fn()
+        .mockResolvedValueOnce(
+          Response.json({
+            format: 'pixloom-cloud-v2',
+            projectId,
+            environment: 'development',
+            generation,
+            endpoint,
+          }),
+        )
+        .mockResolvedValueOnce(Response.json({ message: 'sent' }))
+      const client = new Function(
+        'location',
+        'fetch',
+        sharedClientSource
+          .replace('import.meta.env.BASE_URL', JSON.stringify('/'))
+          .replace('export const cloud', 'const cloud') + ';return cloud;',
+      )({ pathname, href: 'https://pixloom.test' + pathname }, fetch)
+      await client.signUp('test@example.com', 'valid-password')
+      const body = JSON.parse(fetch.mock.calls[1][1].body)
+      expect(body).toEqual({
+        email: 'test@example.com',
+        password: 'valid-password',
+        ...(pathname === '/' ? {} : { previewArtifactId: artifactId }),
+      })
+      expect(fetch.mock.calls[1][1].body).not.toContain('private-grant')
+    }
+  })
+
+  it('returns production confirmations to the dynamically published domain and stops after unpublish', async () => {
+    vi.stubEnv('PIXLOOM_AUTH_URL', 'https://pixloom.test')
+    vi.stubEnv('PIXLOOM_CLOUD_PROD_PROJECT_REF', 'bcdefghijklmnopqrstu')
+    vi.stubEnv(
+      'PIXLOOM_CLOUD_PROD_DATABASE_URL',
+      'postgresql://postgres:secret@127.0.0.1:5432/postgres',
+    )
+    vi.stubEnv('PIXLOOM_CLOUD_PROD_PUBLISHABLE_KEY', 'sb_publishable_test')
+    vi.stubEnv('PIXLOOM_CLOUD_PROD_SECRET_KEY', 'sb_secret_test')
+    vi.stubEnv('PIXLOOM_PUBLISH_ENABLED', '1')
+    vi.stubEnv('PIXLOOM_PUBLISH_DOMAIN', 'apps.pixloom.test')
+    const store = await import('../src/lib/store')
+    const publication = await import('../src/lib/publication/store')
+    const { publicationTarget } = await import('../src/lib/publication/config')
+    const project = createProject('Production redirect', files)
+    reserveSharedEnvironment(project.id, 'production')
+    db()
+      .prepare(
+        "UPDATE cloud_environments_v2 SET status='ready' WHERE projectId=?",
+      )
+      .run(project.id)
+    const generation = sharedApp(project.id)!.generation
+    store.enqueueTask(
+      project.id,
+      'initialize',
+      store.getDraft(project.id).revision,
+      null,
+    )
+    const version = store.completeBuild(
+      store.claimTask()!,
+      'fixture',
+      randomUUID(),
+      [
+        {
+          path: 'index.html',
+          contentType: 'text/html',
+          body: Buffer.from('fixture').toString('base64'),
+        },
+      ],
+    )!
+    const target = publicationTarget(project.id)
+    publication.enqueuePublication(
+      project.id,
+      { action: 'publish', versionId: version.id, expectedReleaseId: null },
+      target,
+    )
+    const task = store.claimTask()!
+    publication.setReleasePhase(task, 'verifying')
+    publication.completePublication(task)
+    const params = { scope: [project.id, 'production', generation] }
+    const html = await confirmationGET(
+      new Request('https://pixloom.test/cloud/auth/confirmed'),
+      { params },
+    ).text()
+    expect(html).toContain(`href="${target.url}"`)
+    expect(html).not.toContain('/projects/')
+    db()
+      .prepare('DELETE FROM published_sites WHERE projectId=?')
+      .run(project.id)
+    expect(
+      await confirmationGET(
+        new Request('https://pixloom.test/cloud/auth/confirmed'),
+        { params },
+      ).text(),
+    ).not.toContain('href=')
+  })
+
   it('reports unconfirmed email using a fixed message without exposing upstream response contents', async () => {
     const project = createProject('Email confirmation', files)
     const row = reserveSharedEnvironment(project.id, 'development')

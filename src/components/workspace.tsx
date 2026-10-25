@@ -41,6 +41,10 @@ import type {
   Publication,
 } from '@/lib/types'
 import { isActive } from '@/lib/types'
+import {
+  normalizePublicationPrefix,
+  publicationPrefixError,
+} from '@/lib/publication/prefix'
 import { diffFiles } from '@/lib/diff'
 import { useWorkspaceDialog } from './workspace-dialog'
 import { WorkspaceAccount, useWorkspaceAccount } from './workspace-account'
@@ -97,6 +101,40 @@ const labels = {
   failed: '失败',
   cancelled: '已取消',
 }
+const promptExamples = [
+  {
+    label: '做一个私房食谱本',
+    prompt: `帮我做一个私房食谱本，风格温暖简洁，手机和电脑都能用。
+
+支持注册、登录、退出，重新打开后保持登录。每个人只能看到自己的食谱。
+
+食谱可以新增、编辑、删除，包含名称、分类、食材、做法、烹饪时间和评分，还能标记收藏。支持搜索、分类筛选、排序和分页，首页显示食谱数量和收藏数量。
+
+每份食谱可以保存一份文字备忘文件，并再次打开查看。食谱和文件都要真实保存到云端，刷新后仍然存在。`,
+  },
+  {
+    label: '做一个支持分类筛选的待办应用',
+    prompt: `帮我做一个待办应用，风格清爽简洁，手机和电脑都能用。
+
+支持注册、登录、退出，重新打开后保持登录。每个人只能看到自己的任务和分类。
+
+任务可以新增、编辑、删除，包含标题、分类、优先级、截止日期和备注，还能标记完成或恢复未完成。分类可以自定义。支持搜索，按分类、完成状态和优先级筛选，按截止日期、优先级或创建时间排序，并支持分页。首页显示任务总数、未完成数量、已完成数量和逾期数量。
+
+每个任务可以保存一份文字备忘文件，并再次打开查看。任务、分类和文件都要真实保存到云端，刷新后仍然存在。`,
+  },
+  {
+    label: '做一个可以暂停和重置的番茄钟',
+    prompt: `帮我做一个番茄钟应用，风格安静简洁，手机和电脑都能用。
+
+支持注册、登录、退出，重新打开后保持登录。每个人只能看到自己的专注记录和设置。
+
+支持专注、短休息和长休息三种模式，可以自定义各阶段时长和长休息间隔。计时可以开始、暂停、继续和重置，结束时显示提醒。切换页面或刷新后，仍能恢复当前计时状态并准确显示剩余时间。
+
+每次专注可以填写任务名称和分类，完成后自动保存专注记录，包含开始时间、实际专注时长和备注。支持查看历史记录、编辑备注、删除记录，按任务名称搜索、按分类和日期筛选，并支持排序和分页。首页显示今日完成的番茄数、今日专注时长和累计专注时长。
+
+专注记录、个人设置和当前计时状态都要真实保存到云端，刷新或重新登录后仍然存在。`,
+  },
+]
 function taskLabel(task: TaskSummary) {
   if (task.status !== 'running' || task.kind !== 'agent')
     return labels[task.status]
@@ -170,6 +208,7 @@ function WorkspaceSession({
     [files, setFiles] = useState<SourceFile[]>([])
   const [file, setFile] = useState('src/App.jsx')
   const [publication, setPublication] = useState<Publication | null>(null)
+  const [prefixEdit, setPrefixEdit] = useState<string | null>(null)
   const [history, setHistory] = useState(false),
     [historical, setHistorical] = useState<VersionDetail | null>(null)
   const [current, setCurrent] = useState<VersionDetail | null>(null),
@@ -217,6 +256,23 @@ function WorkspaceSession({
   const ready = canAccess && !!status?.workerOnline
   const aiReady = ready && (account.session.usage?.remainingCredits ?? 1) > 0
   const latestTask = detail?.tasks[0]
+  const domainPrefix = prefixEdit ?? publication?.prefix ?? ''
+  const normalizedPrefix = normalizePublicationPrefix(domainPrefix)
+  const prefixError = publicationPrefixError(normalizedPrefix)
+  const prefixChanged = normalizedPrefix !== publication?.prefix
+
+  useEffect(() => {
+    setPrefixEdit(null)
+  }, [projectId, publication?.prefix])
+
+  useEffect(() => {
+    if (!error && !notice) return
+    const timer = window.setTimeout(() => {
+      setError('')
+      setNotice('')
+    }, 4000)
+    return () => window.clearTimeout(timer)
+  }, [error, notice])
 
   useEffect(() => {
     if (!account.session.user?.id || latestTask?.kind !== 'agent') return
@@ -713,7 +769,15 @@ function WorkspaceSession({
         action,
         expectedReleaseId: publication.live?.id || null,
         ...(action === 'publish'
-          ? { versionId: shown?.id }
+          ? {
+              versionId: shown?.id,
+              ...(prefixChanged
+                ? {
+                    prefix: normalizedPrefix,
+                    expectedPrefix: publication.prefix,
+                  }
+                : {}),
+            }
           : action === 'rollback'
             ? { releaseId }
             : {}),
@@ -724,6 +788,27 @@ function WorkspaceSession({
         action === 'unpublish'
           ? '下线操作已排队。'
           : '发布操作已排队，可在此查看进度。',
+      )
+    })
+  }
+  async function savePublicationPrefix() {
+    if (!publication || busy || active || prefixError) return
+    await perform(async () => {
+      const result = await api<Publication>(
+        `${base}/releases`,
+        {
+          prefix: normalizedPrefix,
+          expectedPrefix: publication.prefix,
+          expectedReleaseId: publication.live?.id || null,
+        },
+        'PATCH',
+      )
+      setPublication(result)
+      setPrefixEdit(null)
+      setNotice(
+        result.live
+          ? '域名前缀已更新，新地址已生效。'
+          : '域名前缀已保存，发布时将使用此地址。',
       )
     })
   }
@@ -971,17 +1056,13 @@ function WorkspaceSession({
                 </p>
               )}
               <div className="prompt-examples" aria-label="试试这些想法">
-                {[
-                  '做一个支持分类筛选的待办应用',
-                  '做一个可以暂停和重置的番茄钟',
-                  '做一个展示作品的个人主页',
-                ].map((example) => (
+                {promptExamples.map((example) => (
                   <button
-                    key={example}
+                    key={example.label}
                     disabled={busy}
-                    onClick={() => setPrompt(example)}
+                    onClick={() => setPrompt(example.prompt)}
                   >
-                    {example}
+                    {example.label}
                   </button>
                 ))}
               </div>
@@ -1083,7 +1164,7 @@ function WorkspaceSession({
                             )}
                             {isActive(task) && (
                               <button
-                                className="task-cancel"
+                                className="task-action task-cancel"
                                 type="button"
                                 onClick={() =>
                                   void perform(async () => {
@@ -1095,6 +1176,7 @@ function WorkspaceSession({
                                   })
                                 }
                               >
+                                <X size={13} aria-hidden="true" />
                                 取消
                               </button>
                             )}
@@ -1152,25 +1234,28 @@ function WorkspaceSession({
             <section className="preview-panel">
               <div className="preview-toolbar">
                 <div className="tabs">
-                  {workspaceTabs.map((key, i) => (
-                    <button
-                      key={key}
-                      className={tab === key ? 'active' : ''}
-                      onClick={() => setTab(key)}
-                    >
-                      {
-                        [
-                          <Monitor size={14} key="p" />,
-                          <Code2 size={14} key="c" />,
-                          <GitCompareArrows size={14} key="d" />,
-                          <Box size={14} key="r" />,
-                          <Cloud size={14} key="cloud" />,
-                          <Rocket size={14} key="s" />,
-                        ][i]
-                      }
-                      {['预览', '源码', '差异', '环境', '云后端', '发布'][i]}
-                    </button>
-                  ))}
+                  {workspaceTabs.map((key, i) => {
+                    if (key === 'runtime' || key === 'cloud') return null
+                    return (
+                      <button
+                        key={key}
+                        className={tab === key ? 'active' : ''}
+                        onClick={() => setTab(key)}
+                      >
+                        {
+                          [
+                            <Monitor size={14} key="p" />,
+                            <Code2 size={14} key="c" />,
+                            <GitCompareArrows size={14} key="d" />,
+                            <Box size={14} key="r" />,
+                            <Cloud size={14} key="cloud" />,
+                            <Rocket size={14} key="s" />,
+                          ][i]
+                        }
+                        {['预览', '源码', '差异', '环境', '云后端', '发布'][i]}
+                      </button>
+                    )
+                  })}
                 </div>
                 <div className="preview-actions">
                   <button
@@ -1194,13 +1279,6 @@ function WorkspaceSession({
                     onClick={() => setHistory(!history)}
                   >
                     <History size={16} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    aria-label="切换手机预览"
-                    onClick={() => setMobile(!mobile)}
-                  >
-                    {mobile ? <Smartphone size={16} /> : <Monitor size={16} />}
                   </button>
                 </div>
               </div>
@@ -1285,6 +1363,19 @@ function WorkspaceSession({
                         重新构建
                       </button>
                       <span className="toolbar-divider" aria-hidden="true" />
+                      <button
+                        className={`icon-button ${mobile ? 'pressed' : ''}`}
+                        aria-label={mobile ? '切换 Web 预览' : '切换移动端预览'}
+                        title={mobile ? '切换 Web 预览' : '切换移动端预览'}
+                        aria-pressed={mobile}
+                        onClick={() => setMobile(!mobile)}
+                      >
+                        {mobile ? (
+                          <Smartphone size={14} />
+                        ) : (
+                          <Monitor size={14} />
+                        )}
+                      </button>
                       <button
                         className="icon-button"
                         aria-label="刷新预览"
@@ -1606,6 +1697,59 @@ function WorkspaceSession({
                   {publication && !publication.enabled && (
                     <p className="workspace-hint">{publication.reason}</p>
                   )}
+                  {publication?.prefix && publication.domainSuffix && (
+                    <form
+                      className="publication-domain"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void savePublicationPrefix()
+                      }}
+                    >
+                      <label htmlFor="publication-prefix">域名前缀</label>
+                      <div className="publication-domain-controls">
+                        <div className="publication-domain-input">
+                          <input
+                            id="publication-prefix"
+                            value={domainPrefix}
+                            onChange={(event) =>
+                              setPrefixEdit(event.target.value)
+                            }
+                            disabled={busy || !!active || !publication.enabled}
+                            autoCapitalize="none"
+                            autoCorrect="off"
+                            spellCheck={false}
+                            maxLength={63}
+                            aria-invalid={!!prefixError}
+                            aria-describedby="publication-prefix-hint"
+                          />
+                          <span>.{publication.domainSuffix}</span>
+                        </div>
+                        <button
+                          type="submit"
+                          disabled={
+                            busy ||
+                            !!active ||
+                            !publication.enabled ||
+                            !prefixChanged ||
+                            !!prefixError
+                          }
+                        >
+                          保存前缀
+                        </button>
+                      </div>
+                      <p
+                        id="publication-prefix-hint"
+                        className={
+                          prefixError ? 'publication-domain-error' : ''
+                        }
+                      >
+                        {prefixError ||
+                          (publication.live
+                            ? '修改后立即使用新地址，原地址停止访问。前缀不能与其他项目重复。'
+                            : '默认随机生成，可直接修改后发布。支持字母、数字和连字符，前缀不可重复。')}
+                      </p>
+                    </form>
+                  )}
                   <div className="publication-controls">
                     <button
                       className="primary-button"
@@ -1615,6 +1759,7 @@ function WorkspaceSession({
                         !ready ||
                         !shown ||
                         !publication?.enabled ||
+                        !!prefixError ||
                         (publication.live?.versionId === shown.id &&
                           publication.live?.artifactId === shown.artifactId)
                       }

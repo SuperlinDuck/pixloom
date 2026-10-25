@@ -17,6 +17,7 @@ import {
   digestToken,
 } from './shared-auth'
 import { cloudSchema, type AppSchema } from './schema'
+import { emailConfirmationUrl } from './email-confirmation'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -524,13 +525,34 @@ export async function sharedRuntimeHandler(
           throw new StoreError('认证参数无效')
         const body = await jsonBody(request)
         if (path === 'auth/signup') {
-          const credentials = parseSharedCredentials(body, true)
+          const input =
+            body && typeof body === 'object' && !Array.isArray(body)
+              ? { ...body }
+              : body
+          const previewArtifactId = input?.previewArtifactId
+          if (input && typeof input === 'object') delete input.previewArtifactId
+          if (
+            previewArtifactId !== undefined &&
+            typeof previewArtifactId !== 'string'
+          )
+            throw new StoreError('预览产物无效', 400)
+          const credentials = parseSharedCredentials(input, true)
+          const redirectTo = emailConfirmationUrl(
+            projectId,
+            row.environment,
+            app.generation,
+            previewArtifactId,
+          )
           // Never register membership based only on an email or an unverified sign-up response.
           try {
-            await poolRequest(row, '/auth/v1/signup', {
-              method: 'POST',
-              body: credentials,
-            })
+            await poolRequest(
+              row,
+              '/auth/v1/signup?redirect_to=' + encodeURIComponent(redirectTo),
+              {
+                method: 'POST',
+                body: credentials,
+              },
+            )
           } catch (error) {
             if (
               (error as StoreError).status === 429 ||

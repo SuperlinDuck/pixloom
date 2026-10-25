@@ -3,6 +3,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { projectPublicId } from '../store'
 import { workspaceOrigin } from '../workspace-origin'
+import { normalizePublicationPrefix, publicationPrefixError } from './prefix'
 
 export function publicationConfig() {
   const domain = process.env.PIXLOOM_PUBLISH_DOMAIN || 'apps.localhost'
@@ -45,9 +46,13 @@ export type PublicationConfig = ReturnType<typeof publicationConfig>
 export function publicationTarget(
   projectId: string,
   config = publicationConfig(),
+  prefix = projectPublicId(projectId),
 ) {
   if (!/^[a-f0-9-]{36}$/.test(projectId)) throw new Error('项目 ID 无效')
-  const domain = `${projectPublicId(projectId)}.${config.domain}`
+  prefix = normalizePublicationPrefix(prefix)
+  const error = publicationPrefixError(prefix)
+  if (error) throw new Error(error)
+  const domain = `${prefix}.${config.domain}`
   const scheme = config.local ? 'http' : 'https'
   const port =
     config.publicPort === (config.local ? 80 : 443)

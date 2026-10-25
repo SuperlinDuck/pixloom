@@ -143,6 +143,8 @@ export type Publication = {
   enabled: boolean
   reason: string | null
   domain: string | null
+  prefix: string | null
+  domainSuffix: string | null
   live: Release | null
   releases: Release[]
 }

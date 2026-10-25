@@ -1425,7 +1425,7 @@ h1 > span {
 }
 .preview-status {
   height: 29px;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
@@ -3320,11 +3320,14 @@ h1 {
 }
 .workspace-toast {
   position: fixed;
-  bottom: 22px;
-  left: max(260px, 25%);
-  right: 22px;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(640px, calc(100vw - 32px));
   z-index: 80;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
   padding: 15px 18px;
@@ -3332,6 +3335,13 @@ h1 {
   border: 1px solid #bbd0b9;
   border-radius: 10px;
   box-shadow: 0 8px 32px #0001;
+}
+.workspace-toast span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.workspace-toast button {
+  flex-shrink: 0;
 }
 .workspace-toast.error {
   background: #fff1ed;
@@ -3362,8 +3372,8 @@ h1 {
     min-height: 650px;
   }
   .workspace-toast {
-    left: 12px;
-    right: 12px;
+    top: 12px;
+    max-width: calc(100vw - 24px);
   }
   .file-tree {
     width: 130px;
@@ -3421,6 +3431,61 @@ h1 {
   gap: 12px;
   align-items: center;
   margin-top: 18px;
+}
+.publication-domain {
+  margin-top: 18px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.publication-domain-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.publication-domain-input {
+  display: flex;
+  align-items: center;
+  flex: 1 1 240px;
+  min-width: 0;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.publication-domain-input:focus-within {
+  border-color: #78716c;
+}
+.publication-domain-input input {
+  flex: 1;
+  width: 0;
+  min-width: 60px;
+  border: 0;
+  outline: 0;
+  padding: 10px 12px;
+  font: inherit;
+  background: transparent;
+}
+.publication-domain-input span {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow-wrap: anywhere;
+  padding-right: 12px;
+  color: #71717a;
+}
+.publication-domain-controls > button {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border: 1px solid #d4d4d8;
+  border-radius: 8px;
+}
+.publication-domain p {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #71717a;
+}
+.publication-domain p.publication-domain-error {
+  color: #b26755;
 }
 .publication-controls > span {
   font-size: 12px;

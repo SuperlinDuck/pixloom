@@ -163,8 +163,7 @@ export function WorkspaceCloud({
               {status.provider === 'shared' && (
                 <>
                   <p className="workspace-hint">
-                    应用使用 Pixloom Cloud
-                    账号登录，同一池共享账号体系，应用数据分别授权。共享池暂不支持自定义服务端函数。
+                    同一池共享账号体系，应用数据分别授权。共享池暂不支持自定义服务端函数。
                   </p>
                   {!status.productionConfigured && (
                     <p className="workspace-hint">

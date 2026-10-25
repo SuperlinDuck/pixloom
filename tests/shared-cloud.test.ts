@@ -1072,7 +1072,7 @@ describe.skipIf(process.env.PIXLOOM_SHARED_DB_TESTS !== '1')(
           body: Buffer.from(await result.arrayBuffer()),
         }
       }
-      const source = `import React,{useState} from 'react';import {cloud} from './pixloom-cloud.js';export default function App(){const[email,E]=useState(''),[password,P]=useState(''),[title,T]=useState(''),[rows,R]=useState([]),[status,S]=useState('请登录');async function load(){R(await cloud.select('todos'));S('已登录')}return <main><h1>使用 Pixloom Cloud 账号登录</h1><input id="email" value={email} onChange={e=>E(e.target.value)}/><input id="password" value={password} onChange={e=>P(e.target.value)}/><button id="login" type="button" onClick={async()=>{await cloud.signIn(email,password);await load()}}>登录</button><output>{status}</output><input id="title" value={title} onChange={e=>T(e.target.value)}/><button id="add" type="button" onClick={async()=>{await cloud.insert('todos',{title});await load()}}>添加</button><ul>{rows.map(row=><li key={row.id}>{row.title}</li>)}</ul></main>}`
+      const source = `import React,{useState} from 'react';import {cloud} from './pixloom-cloud.js';export default function App(){const[email,E]=useState(''),[password,P]=useState(''),[title,T]=useState(''),[rows,R]=useState([]),[status,S]=useState('请登录');async function load(){R(await cloud.select('todos'));S('已登录')}return <main><h1>登录</h1><input id="email" value={email} onChange={e=>E(e.target.value)}/><input id="password" value={password} onChange={e=>P(e.target.value)}/><button id="login" type="button" onClick={async()=>{await cloud.signIn(email,password);await load()}}>登录</button><output>{status}</output><input id="title" value={title} onChange={e=>T(e.target.value)}/><button id="add" type="button" onClick={async()=>{await cloud.insert('todos',{title});await load()}}>添加</button><ul>{rows.map(row=><li key={row.id}>{row.title}</li>)}</ul></main>}`
       for (let number = 0; number < 2; number++) {
         const project = createProject(
           'Generated shared ' + number,
@@ -1249,10 +1249,7 @@ describe.skipIf(process.env.PIXLOOM_SHARED_DB_TESTS !== '1')(
             {
               type: 'write',
               path: 'src/App.jsx',
-              content: source.replace(
-                '使用 Pixloom Cloud 账号登录',
-                '使用 Pixloom Cloud 账号登录 v2',
-              ),
+              content: source.replace('<h1>登录</h1>', '<h1>登录 v2</h1>'),
             },
           ])
           enqueueTask(project.id, 'commit', saved.revision, saved.baseVersionId)

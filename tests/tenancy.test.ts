@@ -59,6 +59,7 @@ import { POST as cancelPOST } from '../src/app/api/tasks/[id]/cancel/route'
 import {
   GET as releasesGET,
   POST as releasesPOST,
+  PATCH as releasesPATCH,
 } from '../src/app/api/projects/[id]/releases/route'
 import {
   GET as cloudGET,
@@ -249,6 +250,7 @@ describe('invitation and ownership boundary', () => {
       projectPATCH,
       filesPATCH,
       releasesPOST,
+      releasesPATCH,
       cloudPOST,
       cloudPATCH,
       runtimePOST,

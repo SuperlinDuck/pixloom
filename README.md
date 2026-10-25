@@ -56,7 +56,7 @@ pnpm dev
 
 管理员按 [.env.example](.env.example) 配置 `PIXLOOM_CLOUD_ENCRYPTION_KEY`、`PIXLOOM_CLOUD_RUNTIME_URL` 和 `PIXLOOM_CLOUD_DEV_*` / `PIXLOOM_CLOUD_PROD_*`。开发池配置完整即可开发；生产池可稍后配置。详细步骤见 [共享池配置与运维](docs/cloud-shared.md)。共享模式无需 Management API Token、组织标识和旧的 `PIXLOOM_CLOUD_MAX_PROJECTS`；应用数量取决于池总容量和平台配额。
 
-Engineer 使用同一套 `cloud_enable`、`cloud_schema`、`cloud_test_account` 工具。`src/pixloom-schema.json` 定义用户所属的数据表和逻辑私有存储桶；构建同步开发结构，发布同步生产结构；迁移只添加表/列，代码回滚不回滚业务数据。登录界面说明“使用 Pixloom Cloud 账号登录”：同一环境池共用身份提供方，应用成员和数据分别授权。新版客户端通过可信预览入口和发布站点固定保持登录 7 天，刷新和正常重开浏览器自动恢复；主动退出会在服务端立即撤销。Supabase 凭证加密保存在服务端，应用仅持有内存中的短期访问凭证。共享模式暂不支持自定义服务端函数，需要此能力可为新应用选择 **自有 Supabase**。
+Engineer 使用同一套 `cloud_enable`、`cloud_schema`、`cloud_test_account` 工具。`src/pixloom-schema.json` 定义用户所属的数据表和逻辑私有存储桶；构建同步开发结构，发布同步生产结构；迁移只添加表/列，代码回滚不回滚业务数据。同一环境池共用身份提供方，应用成员和数据分别授权；登录界面文案由应用自行设计。新版客户端通过可信预览入口和发布站点固定保持登录 7 天，刷新和正常重开浏览器自动恢复；主动退出会在服务端立即撤销。Supabase 凭证加密保存在服务端，应用仅持有内存中的短期访问凭证。共享模式暂不支持自定义服务端函数，需要此能力可为新应用选择 **自有 Supabase**。
 
 自有模式通过 OAuth 绑定两个独立项目，需另配 `PIXLOOM_SUPABASE_CLIENT_ID`、`PIXLOOM_SUPABASE_CLIENT_SECRET`；回调为 `<工作台来源>/api/cloud/supabase/callback`。已有 v1 独立托管资源继续使用原绑定，不自动合并、删除或接管。兼容配置见 [独立后端文档](docs/cloud.md)，后续设计见 [Cloud v2](docs/cloud-v2.md)。
 
