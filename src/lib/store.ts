@@ -396,6 +396,27 @@ export function getTask(id: string) {
   if (!row) throw new StoreError('任务不存在', 404)
   return decodeTask(row)
 }
+export type AgentConversationTurn = {
+  id: string
+  prompt: string
+  status: Task['status']
+  error: string | null
+  reply: string | null
+}
+export function agentConversation(task: Pick<Task, 'id' | 'projectId'>) {
+  // Read only conversational fields, never candidate source or tool/model logs.
+  // rowid provides stable ordering even when messages share a timestamp.
+  return db()
+    .prepare(
+      `SELECT id,status,error,json_extract(agent,'$.prompt') AS prompt,
+        (SELECT json_extract(value,'$.message') FROM json_each(tasks.events)
+          WHERE json_extract(value,'$.type')='reply' ORDER BY key DESC LIMIT 1) AS reply
+       FROM tasks WHERE projectId=? AND kind='agent' AND agent IS NOT NULL
+         AND rowid<(SELECT rowid FROM tasks WHERE id=? AND projectId=?)
+       ORDER BY rowid`,
+    )
+    .all(task.projectId, task.id, task.projectId) as AgentConversationTurn[]
+}
 export function enqueueTask(
   projectId: string,
   kind: TaskKind,

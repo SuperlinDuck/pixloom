@@ -1,0 +1,465 @@
+.shell {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 32px 40px 64px;
+}
+.header,
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.header {
+  margin-bottom: 28px;
+}
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+.header h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 28px;
+  letter-spacing: -0.8px;
+  margin-bottom: 8px;
+}
+.header p,
+.subtitle,
+.note {
+  color: var(--muted);
+  line-height: 1.7;
+}
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  white-space: nowrap;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.stats > div {
+  padding: 22px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.stats span,
+.stats small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.stats strong {
+  display: block;
+  margin: 12px 0;
+  font-size: 26px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.stats i {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 15px;
+  color: var(--muted);
+}
+.note {
+  margin: 14px 0 26px;
+  font-size: 12px;
+}
+.tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 22px;
+}
+.tabs button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 2px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+}
+.tabs button[aria-current] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.panel {
+  background: white;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-width: 0;
+}
+.panel h2 {
+  font-size: 17px;
+  margin-bottom: 6px;
+}
+.subtitle {
+  font-size: 13px;
+}
+.inviteForm {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(4, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  margin-top: 24px;
+}
+.inviteForm label {
+  display: grid;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 0;
+}
+.shell input {
+  min-width: 0;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+.shell input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.inviteForm button {
+  min-height: 40px;
+  white-space: nowrap;
+}
+.newCode {
+  display: grid;
+  gap: 14px;
+  background: #f4f8f3;
+  border: 1px solid #d8e5d6;
+  padding: 18px;
+  border-radius: 8px;
+  margin-top: 22px;
+}
+.newCode p {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.copyRow {
+  display: flex;
+  gap: 10px;
+  max-width: 560px;
+}
+.copyRow input {
+  font-family: monospace;
+}
+.sectionTitle {
+  margin-top: 32px;
+}
+.tableWrap {
+  overflow-x: auto;
+  margin-top: 18px;
+}
+.tableWrap table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+.tableWrap th {
+  font-weight: 500;
+  background: var(--bg);
+  color: var(--muted);
+  padding: 12px;
+  white-space: nowrap;
+}
+.tableWrap td {
+  border-bottom: 1px solid var(--line);
+  padding: 16px 12px;
+  vertical-align: top;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tableWrap td:first-child {
+  white-space: normal;
+  min-width: 180px;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+}
+.tableWrap strong {
+  font-weight: 550;
+}
+.tableWrap small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 6px;
+}
+.badge {
+  display: inline-block;
+  border-radius: 5px;
+  background: var(--panel);
+  padding: 3px 7px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.textButton {
+  color: #ac481f;
+  font-size: 12px;
+  padding: 4px 0;
+  white-space: nowrap;
+}
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pager > div {
+  display: flex;
+  gap: 6px;
+}
+.pager button {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 12px;
+  min-width: 280px;
+}
+.search input {
+  border: 0;
+  padding: 11px 0;
+  background: transparent;
+}
+.search button {
+  font-size: 12px;
+  white-space: nowrap;
+  padding: 10px 0;
+}
+.error {
+  color: #a52d22;
+  background: #fff4f2;
+  padding: 12px;
+  border-radius: 6px;
+  line-height: 1.7;
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.error button {
+  text-decoration: underline;
+  margin-left: 12px;
+}
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 0;
+  color: var(--muted);
+}
+.empty {
+  padding: 32px 12px !important;
+  text-align: center;
+  color: var(--muted);
+}
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0 0;
+  overflow-wrap: anywhere;
+}
+.conversations {
+  display: grid;
+  grid-template-columns: minmax(240px, 310px) minmax(0, 1fr);
+  gap: 24px;
+  margin-top: 24px;
+  align-items: start;
+}
+.projectList {
+  display: grid;
+  gap: 8px;
+}
+.project {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.project[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: #fff7f1;
+}
+.project span,
+.project small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.project small {
+  font-size: 11px;
+}
+.projectList .pager {
+  flex-wrap: wrap;
+}
+.conversationEmpty {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 14px;
+  color: var(--muted);
+  min-height: 280px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+.transcript {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 0;
+}
+.transcript > header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.transcript > header p {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.turn {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--line);
+}
+.turnMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 14px;
+}
+.prompt {
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--panel);
+  margin-bottom: 18px;
+}
+.prompt > strong,
+.reply > strong {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 9px;
+}
+.prompt p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.reply {
+  overflow-wrap: anywhere;
+}
+.reply pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.turn footer {
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--muted);
+  margin-top: 18px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) {
+  .inviteForm {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .stats strong {
+    font-size: 23px;
+  }
+}
+@media (max-width: 800px) {
+  .shell {
+    padding: 24px 18px 40px;
+  }
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .panel {
+    padding: 18px;
+  }
+  .sectionHeader {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .search {
+    min-width: 0;
+  }
+  .conversations {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .projectList {
+    max-height: 340px;
+    overflow-y: auto;
+  }
+}
+@media (max-width: 480px) {
+  .header {
+    align-items: start;
+    gap: 12px;
+  }
+  .header h1 {
+    font-size: 24px;
+  }
+  .stats > div {
+    padding: 16px;
+  }
+  .inviteForm {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tabs {
+    gap: 18px;
+  }
+  .tabs button {
+    font-size: 13px;
+  }
+  .transcript {
+    padding: 14px;
+  }
+  .copyRow {
+    flex-wrap: wrap;
+  }
+}

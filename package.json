@@ -29,6 +29,7 @@
     "cloud:pool": "tsx scripts/cloud-pool.ts",
     "cloud:verify-runtime": "PIXLOOM_CLOUD_RUNTIME_TESTS=1 vitest run tests/cloud-runtime.test.ts",
     "admin": "tsx scripts/admin.ts",
+    "admin:verify": "node --import tsx scripts/verify-admin.ts",
     "ops:check": "tsx scripts/ops-check.ts",
     "invite:verify": "node --import tsx scripts/verify-invitations.ts",
     "deploy:verify": "node --import tsx scripts/verify-deployment.ts"

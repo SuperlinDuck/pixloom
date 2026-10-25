@@ -163,7 +163,7 @@ export async function finishSupabaseOAuth(request: Request) {
   saveConnection(tokens, user?.id)
   return cookie(
     NextResponse.redirect(
-      `${workspaceOrigin()}/?cloudProject=${flow.projectId}`,
+      `${workspaceOrigin()}/projects/${flow.projectId}/cloud`,
     ),
     '',
     0,

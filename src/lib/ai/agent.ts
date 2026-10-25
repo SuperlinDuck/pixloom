@@ -1,4 +1,5 @@
 import { withModelBilling } from './billing'
+import { codingAgentPrompt } from './context'
 import {
   cloudTestAccount,
   redactTestCredentials,
@@ -58,18 +59,33 @@ export async function runCodingAgent(
   const session = options.provider.createSession({
     model: state.model,
     signal: options.signal,
-    prompt: `用户需求：${state.prompt}\n当前候选文件：${JSON.stringify(task.candidateFiles.map((f) => ({ path: f.path, bytes: Buffer.byteLength(f.content) })))}\n当前版本：${task.baseVersionId || '尚无'}。先读取相关源码，保留未涉及的功能。`,
+    prompt: codingAgentPrompt(task),
   })
   let inputs: AgentInput[] = []
   let lastOutput = '尚未运行构建'
-  const cache: { validated: { hash: string; result: AgentBuild } | null } = {
-    validated: null,
+  const cache: {
+    built: {
+      hash: string
+      result: AgentBuild
+      smoke: BrowserReport
+      behavior: BrowserReport | null
+    } | null
+  } = {
+    built: null,
   }
-  let behaviorHash: string | null = null
   const verify = async (result: AgentBuild, steps: BrowserStep[]) => {
     check()
-    if ((state.validationFailures || 0) >= AGENT_LIMITS.failedValidations)
-      throw new Error('浏览器验证已达到三次失败上限；上一可用版本保留')
+    options.signal.throwIfAborted()
+    if ((state.validationFailures || 0) >= AGENT_LIMITS.failedValidations) {
+      const report = {
+        ok: false,
+        output: '自动测试已失败三次，跳过后续浏览器验证；不阻塞版本保存。',
+        completedSteps: 0,
+      }
+      lastOutput = report.output
+      addEvent(task, lastOutput, { type: 'validation' })
+      return report
+    }
     addEvent(
       task,
       steps.length
@@ -77,18 +93,30 @@ export async function runCodingAgent(
         : '验证候选预览加载与页面错误',
       { type: 'validation' },
     )
-    const report = await options.verify(result, steps)
+    let report: BrowserReport
+    try {
+      report = await options.verify(result, steps)
+    } catch (error) {
+      // Browser/environment failures are advisory; cancellation and task limits still apply.
+      options.signal.throwIfAborted()
+      check()
+      report = {
+        ok: false,
+        output: error instanceof Error ? error.message : '浏览器验证异常',
+        completedSteps: 0,
+      }
+    }
+    options.signal.throwIfAborted()
     check()
-    lastOutput = report.output.slice(-16000)
+    lastOutput = report.ok
+      ? report.output.slice(-16000)
+      : `自动测试告警\n${report.output.slice(-16000)}`
     addEvent(task, lastOutput, { type: 'validation' })
     if (!report.ok) {
-      behaviorHash = null
       state.validationFailures = (state.validationFailures || 0) + 1
       checkpointAgent(task, options.owner)
-      if (state.validationFailures >= AGENT_LIMITS.failedValidations)
-        throw new Error('浏览器验证已达到三次失败上限；上一可用版本保留')
     }
-    return report
+    return { ...report, output: lastOutput }
   }
   const build = async () => {
     check()
@@ -101,13 +129,15 @@ export async function runCodingAgent(
     addEvent(task, lastOutput || '构建没有输出', { type: 'build' })
     if (result.ok) {
       const report = await verify(result, [])
-      if (!report.ok) {
-        cache.validated = null
-        return { ok: false, output: lastOutput }
+      cache.built = {
+        hash: snapshot(task.candidateFiles).hash,
+        result,
+        smoke: report,
+        behavior: null,
       }
-      cache.validated = { hash: snapshot(task.candidateFiles).hash, result }
+      return { ok: true, output: lastOutput, validation: report }
     } else {
-      cache.validated = null
+      cache.built = null
       state.buildFailures++
       checkpointAgent(task, options.owner)
       if (state.buildFailures >= AGENT_LIMITS.failedBuilds)
@@ -181,12 +211,12 @@ export async function runCodingAgent(
         return build()
       case 'browser_test': {
         const hash = snapshot(task.candidateFiles).hash
-        if (!cache.validated || cache.validated.hash !== hash) {
+        if (!cache.built || cache.built.hash !== hash) {
           const result = await build()
           if (!result.ok) return result
         }
-        const report = await verify(cache.validated!.result, args.steps)
-        behaviorHash = report.ok ? hash : null
+        const report = await verify(cache.built!.result, args.steps)
+        cache.built!.behavior = report
         return report
       }
       default: {
@@ -253,44 +283,48 @@ export async function runCodingAgent(
       state.responseBytes > AGENT_LIMITS.responseBytes
     )
       throw new Error('Coding Agent 输出预算已用尽')
-    if (turn.text) addEvent(task, turn.text.slice(0, 4000), { type: 'model' })
+    if (turn.text && turn.calls.length)
+      addEvent(task, turn.text.slice(0, 4000), { type: 'model' })
     if (!turn.calls.length) {
       if (!turn.text.trim()) throw new Error('模型没有返回工具调用或完成说明')
       if (
-        !cache.validated ||
-        cache.validated.hash !== snapshot(task.candidateFiles).hash
+        !cache.built ||
+        cache.built.hash !== snapshot(task.candidateFiles).hash
       ) {
         const result = await build()
         if (!result.ok) {
           inputs = [
             {
               type: 'user',
-              text: `最终构建或浏览器加载检查失败，请读取并修复错误后重试：\n${lastOutput}`,
+              text: `最终构建失败，请读取并修复错误后重试：\n${lastOutput}`,
             },
           ]
           continue
         }
       }
       check()
-      if (behaviorHash !== snapshot(task.candidateFiles).hash) {
-        inputs = [
-          {
-            type: 'user',
-            text: '候选预览尚未通过当前源码的行为测试。请调用 browser_test，操作所请求功能并断言结果；失败时修复后重试。静态页面也需要内容断言。',
-          },
-        ]
-        continue
-      }
-      addEvent(task, '构建、页面加载与指定行为测试通过，预览就绪', {
+      const built = cache.built!
+      const warning =
+        !built.smoke.ok || built.behavior?.ok === false
+          ? '自动测试未通过或未完成，请在预览中检查实际效果。'
+          : !built.behavior
+            ? '尚未进行功能测试，请在预览中检查实际效果。'
+            : ''
+      addEvent(task, `构建成功，预览就绪。${warning}`, {
         type: 'ready',
       })
-      addEvent(task, turn.text.slice(0, 4000), { type: 'reply' })
+      addEvent(
+        task,
+        turn.text.slice(0, 4000) +
+          (warning ? `\n\n自动测试提示：${warning}` : ''),
+        { type: 'reply' },
+      )
       addEvent(
         task,
         `模型累计用量：输入 ${state.usage.inputTokens} / 输出 ${state.usage.outputTokens} tokens`,
         { type: 'usage' },
       )
-      return cache.validated!.result
+      return built.result
     }
     inputs = []
     for (const call of turn.calls) {

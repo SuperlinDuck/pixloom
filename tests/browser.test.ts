@@ -85,6 +85,61 @@ describe.skipIf(process.env.PIXLOOM_BROWSER_TESTS !== '1')(
       expect(result.output).toContain('broken runtime')
     }, 30000)
 
+    it('uses literal full click labels to distinguish shared button selectors', async () => {
+      const result = await run(
+        source(
+          '<button class="btn-primary">保存并同步到云端（全部）</button><button class="btn-primary"><span>保存 [私房]+</span>\n  到云端</button><output>未保存</output>',
+          `document.querySelectorAll('button')[1].onclick = () => document.querySelector('output').textContent = '已保存'`,
+        ),
+        [
+          step('click', 'button.btn-primary', ' 保存 [私房]+ 到云端 '),
+          step('assert_text', 'output', '已保存'),
+        ],
+      )
+      expect(result, result.output).toMatchObject({
+        ok: true,
+        completedSteps: 2,
+      })
+    }, 30000)
+
+    it('preserves strict matching for empty or duplicate click labels', async () => {
+      const assets = source(
+        '<button>保存</button><button>保存</button><output>未保存</output>',
+        `document.querySelectorAll('button').forEach(button => button.onclick = () => document.querySelector('output').textContent = '已保存')`,
+      )
+      for (const value of ['', '保存']) {
+        const result = await run(assets, [
+          step('click', 'button', value),
+          step('assert_text', 'output', '已保存'),
+        ])
+        expect(result.ok).toBe(false)
+        expect(result.completedSteps).toBe(0)
+        expect(result.output).toContain('strict mode violation')
+        expect(result.output).toContain('请检查剩余步骤中的同类选择器')
+      }
+    }, 30000)
+
+    it('explains select ambiguity and accepts a unique container scope', async () => {
+      const assets = source(
+        '<div><select><option>全部</option></select></div><div class="modal-body"><select><option>冷菜</option><option>热菜</option></select></div>',
+      )
+      const ambiguous = await run(assets, [
+        step('select', 'select:nth-of-type(1)', '热菜'),
+        step('assert_value', '.modal-body select', '热菜'),
+      ])
+      expect(ambiguous.ok).toBe(false)
+      expect(ambiguous.completedSteps).toBe(0)
+      expect(ambiguous.output).toContain(':nth-of-type(1) 按各自父元素计数')
+      const scoped = await run(assets, [
+        step('select', '.modal-body select', '热菜'),
+        step('assert_value', '.modal-body select', '热菜'),
+      ])
+      expect(scoped, scoped.output).toMatchObject({
+        ok: true,
+        completedSteps: 2,
+      })
+    }, 30000)
+
     it('detects console errors, missing resources and failed assertions', async () => {
       const consoleError = await run(
         source('加载', `console.error('render error')`),

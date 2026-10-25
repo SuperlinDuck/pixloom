@@ -4,6 +4,8 @@ import {
   currentAccount,
   googleConfigured,
   noStore,
+  canManagePlatform,
+  sessionUser,
 } from '@/lib/auth'
 import { usageSummary } from '@/lib/tenancy'
 import { errorResponse } from '@/lib/http'
@@ -19,6 +21,7 @@ export async function GET(request: Request) {
         configured: googleConfigured(),
         required: authRequired(),
         user,
+        ...(user ? { canManage: canManagePlatform(sessionUser(request)) } : {}),
         ...(user ? { usage: usageSummary(user.id) } : {}),
       }),
     )

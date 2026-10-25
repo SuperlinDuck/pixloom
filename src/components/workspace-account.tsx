@@ -1,8 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2, LogOut, UserRound } from 'lucide-react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Loader2, LogOut, ShieldCheck, UserRound } from 'lucide-react'
 import type { AccountSession } from '@/lib/auth-types'
+import { AccountUsage } from './account-usage'
 
 const signedOut: AccountSession = {
   configured: false,
@@ -101,8 +102,38 @@ export function WorkspaceAccount({
   const [pending, setPending] = useState(false)
   const [imageFailed, setImageFailed] = useState(false)
   const [code, setCode] = useState('')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRoot = useRef<HTMLDivElement>(null)
+  const menuTrigger = useRef<HTMLButtonElement>(null)
+  const menuId = useId()
   const { session, loading, error, setError } = account
   const user = session.user
+  useEffect(() => {
+    setMenuOpen(false)
+    setImageFailed(false)
+  }, [user?.id])
+  useEffect(() => {
+    if (!menuOpen) return
+    const dismiss = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !menuRoot.current?.contains(event.target)
+      )
+        setMenuOpen(false)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setMenuOpen(false)
+      menuTrigger.current?.focus()
+    }
+    document.addEventListener('pointerdown', dismiss)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', dismiss)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [menuOpen])
   async function login() {
     if (!session.configured) {
       setError('Google 登录暂不可用，请联系管理员完成配置。')
@@ -154,14 +185,27 @@ export function WorkspaceAccount({
     }
   }
   return (
-    <div className="workspace-account">
+    <div className="workspace-account" ref={menuRoot}>
       {loading ? (
         <div className="account-loading" role="status">
           <Loader2 size={16} className="spin" />
           正在加载账号…
         </div>
       ) : user ? (
-        <div className="account-profile">
+        <button
+          type="button"
+          className="account-profile"
+          ref={menuTrigger}
+          aria-label="账号菜单"
+          aria-haspopup="dialog"
+          aria-expanded={menuOpen}
+          aria-controls={menuOpen ? menuId : undefined}
+          disabled={pending}
+          onClick={() => {
+            setMenuOpen((open) => !open)
+            if (!menuOpen) void account.refresh()
+          }}
+        >
           <span className="account-avatar" aria-hidden="true">
             {user.picture && !imageFailed ? (
               <img
@@ -174,23 +218,11 @@ export function WorkspaceAccount({
               user.name.trim()[0]?.toUpperCase() || <UserRound size={18} />
             )}
           </span>
-          <div className="account-details">
+          <span className="account-details">
             <strong title={user.name}>{user.name}</strong>
-          </div>
-          <button
-            className="icon-button account-logout"
-            aria-label="退出登录"
-            title="退出登录"
-            disabled={pending}
-            onClick={() => void logout()}
-          >
-            {pending ? (
-              <Loader2 size={16} className="spin" />
-            ) : (
-              <LogOut size={16} />
-            )}
-          </button>
-        </div>
+          </span>
+          {pending && <Loader2 size={15} className="spin" />}
+        </button>
       ) : (
         <button
           className="account-login"
@@ -226,28 +258,49 @@ export function WorkspaceAccount({
       {user?.status === 'disabled' && (
         <p role="alert">账号已停用，请联系管理员。</p>
       )}
-      {user?.status === 'active' && session.usage && (
-        <div className="account-usage">
-          <p>
-            剩余额度 {session.usage.remainingCredits.toLocaleString()} /{' '}
-            {session.usage.creditLimit.toLocaleString()}
-          </p>
-          <p>
-            输入 {session.usage.inputTokens.toLocaleString()} · 输出{' '}
-            {session.usage.outputTokens.toLocaleString()} tokens
-          </p>
-          {session.usage.reservedCredits > 0 && (
-            <p>
-              已预留 {session.usage.reservedCredits.toLocaleString()}
-              ，含待核对用量
-            </p>
+      {user && menuOpen && (
+        <div
+          className="account-menu"
+          id={menuId}
+          role="dialog"
+          aria-label="账号菜单"
+        >
+          <div className="account-menu-heading">
+            <strong>{user.name}</strong>
+            {user.role === 'admin' && (
+              <span className="account-role">管理员</span>
+            )}
+          </div>
+          {user.status === 'active' && session.usage && (
+            <AccountUsage usage={session.usage} />
           )}
-          {user.accessExpiresAt && (
-            <p>
-              {new Date(user.accessExpiresAt).toLocaleDateString()} 到期
-              {user.accessExpiresAt <= Date.now() ? '，请联系管理员' : ''}
-            </p>
-          )}
+          <div className="account-menu-actions">
+            {session.canManage && (
+              <button
+                type="button"
+                className="account-menu-action"
+                onClick={async () => {
+                  if (await beforeNavigate()) window.location.assign('/admin')
+                }}
+              >
+                <ShieldCheck size={16} />
+                管理后台
+              </button>
+            )}
+            <button
+              type="button"
+              className="account-menu-action"
+              disabled={pending}
+              onClick={() => void logout()}
+            >
+              {pending ? (
+                <Loader2 size={16} className="spin" />
+              ) : (
+                <LogOut size={16} />
+              )}
+              退出登录
+            </button>
+          </div>
         </div>
       )}
       {error && (

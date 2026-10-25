@@ -6,7 +6,6 @@ import {
   Cloud,
   Hammer,
   Check,
-  ChevronRight,
   Code2,
   Copy,
   Download,
@@ -25,7 +24,6 @@ import {
   Rocket,
   Save,
   Smartphone,
-  Square,
   Sparkles,
   Trash2,
   X,
@@ -49,6 +47,14 @@ import { WorkspaceAccount, useWorkspaceAccount } from './workspace-account'
 import { WorkspaceCloud } from './workspace-cloud'
 import { TrustedPreview } from './trusted-preview'
 import { MarkdownReply } from './markdown-reply'
+import { TaskProgress } from './task-progress'
+import { useWorkspaceNavigation } from './use-workspace-navigation'
+import {
+  parseWorkspacePath,
+  workspaceHome,
+  workspaceTabs,
+  type WorkspaceTab,
+} from '@/lib/workspace-route'
 import type { DockerHealth } from '@/lib/runtime/types'
 
 async function api<T>(
@@ -107,7 +113,7 @@ function taskLabel(task: TaskSummary) {
       ? '正在构建'
       : phase === 'ready'
         ? '正在保存版本'
-        : '正在生成源码'
+        : '正在处理需求'
 }
 function taskReply(task: TaskSummary) {
   if (!task.agent) return ''
@@ -148,21 +154,23 @@ function WorkspaceSession({
   account: ReturnType<typeof useWorkspaceAccount>
 }) {
   const { ask, dialog } = useWorkspaceDialog()
-  const projectStorageKey = `pixloom-v3-project:${account.session.user?.id || 'local'}`
   const { canAccess } = account
-  const [projects, setProjects] = useState<Project[]>([]),
-    [projectId, setProjectId] = useState<string | null>(null)
+  const { route, navigate } = useWorkspaceNavigation(
+    async () =>
+      !dirty ||
+      !!(await ask('当前有未保存的编辑，离开将丢弃这些编辑。是否继续？')),
+  )
+  const projectId = canAccess ? route.projectId : null
+  const tab = route.tab
+  const selected = canAccess ? route.versionId : null
+  const [projects, setProjects] = useState<Project[]>([])
   const [detail, setDetail] = useState<ProjectDetail | null>(null),
     [status, setStatus] = useState<SystemStatus | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null),
     [files, setFiles] = useState<SourceFile[]>([])
-  const [file, setFile] = useState('src/App.jsx'),
-    [tab, setTab] = useState<
-      'preview' | 'code' | 'diff' | 'runtime' | 'cloud' | 'publish'
-    >('preview')
+  const [file, setFile] = useState('src/App.jsx')
   const [publication, setPublication] = useState<Publication | null>(null)
   const [history, setHistory] = useState(false),
-    [selected, setSelected] = useState<string | null>(null),
     [historical, setHistorical] = useState<VersionDetail | null>(null)
   const [current, setCurrent] = useState<VersionDetail | null>(null),
     [parent, setParent] = useState<VersionDetail | null>(null)
@@ -180,13 +188,19 @@ function WorkspaceSession({
   const [projectName, setProjectName] = useState('')
   const conversationRef = useRef<HTMLDivElement>(null)
   const followConversation = useRef(true)
-  const [provider, setProvider] = useState<Provider>('gemini')
+  const provider: Provider = 'gemini'
   const [mobile, setMobile] = useState(false),
     [previewKey, setPreviewKey] = useState(0),
     [menu, setMenu] = useState(false)
   const ref = useRef({ projectId, draft, files })
   ref.current = { projectId, draft, files }
   const dirty = !!draft && !equal(files, draft.files)
+  function setTab(tab: WorkspaceTab) {
+    void navigate({ ...route, tab })
+  }
+  function setSelected(versionId: string | null) {
+    void navigate({ ...route, versionId })
+  }
   const active = detail?.tasks.find(isActive)
   const viewingHistory = !!selected
   const shown = viewingHistory ? historical : current
@@ -202,6 +216,21 @@ function WorkspaceSession({
   const locked = busy || !!active || viewingHistory || conflict
   const ready = canAccess && !!status?.workerOnline
   const aiReady = ready && (account.session.usage?.remainingCredits ?? 1) > 0
+  const latestTask = detail?.tasks[0]
+
+  useEffect(() => {
+    if (!account.session.user?.id || latestTask?.kind !== 'agent') return
+    void account.refresh()
+    if (!isActive(latestTask)) return
+    const timer = window.setInterval(() => void account.refresh(), 10000)
+    return () => window.clearInterval(timer)
+  }, [
+    account.refresh,
+    account.session.user?.id,
+    latestTask?.id,
+    latestTask?.kind,
+    latestTask?.status,
+  ])
 
   useEffect(() => {
     if (!copiedTaskId) return
@@ -211,31 +240,17 @@ function WorkspaceSession({
 
   useEffect(() => {
     if (!canAccess) {
-      setProjectId(null)
       setProjects([])
       return
     }
     const cloudProject = new URL(window.location.href).searchParams.get(
       'cloudProject',
     )
-    if (cloudProject && /^[a-f0-9-]{36}$/.test(cloudProject)) {
-      setProjectId(cloudProject)
-      setTab('cloud')
-      window.history.replaceState(null, '', window.location.pathname)
-      return
-    }
-    const remembered =
-      localStorage.getItem(projectStorageKey) ||
-      (!account.session.required
-        ? localStorage.getItem('pixloom-v3-project')
-        : null)
-    if (remembered) setProjectId(remembered)
-  }, [canAccess, projectStorageKey])
-  useEffect(() => {
-    if (!canAccess) return
-    if (projectId) localStorage.setItem(projectStorageKey, projectId)
-    else localStorage.removeItem(projectStorageKey)
-  }, [projectId, canAccess, projectStorageKey])
+    const legacyRoute = cloudProject
+      ? parseWorkspacePath(`/projects/${cloudProject}/cloud`)
+      : null
+    if (legacyRoute) void navigate(legacyRoute, true)
+  }, [canAccess, navigate])
   useEffect(() => {
     if (!menu) return
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -272,7 +287,6 @@ function WorkspaceSession({
     setDetail(null)
     setDraft(null)
     setFiles([])
-    setSelected(null)
     setHistorical(null)
     setCurrent(null)
     setOlder([])
@@ -354,7 +368,7 @@ function WorkspaceSession({
   useEffect(() => {
     setHistorical(null)
     setParent(null)
-    if (!selected) return
+    if (!selected || !projectId || !canAccess) return
     let alive = true
     void api<VersionDetail>(`${base}/versions/${selected}`)
       .then(async (data) => {
@@ -375,9 +389,25 @@ function WorkspaceSession({
     }
   }, [
     base,
+    canAccess,
+    projectId,
     selected,
     detail?.versions.find((v) => v.id === selected)?.artifactId,
   ])
+  useEffect(() => {
+    if (!projectId || !canAccess || tab !== 'runtime') return
+    let alive = true
+    void api<Environment>(`${base}/runtime?refresh=1`)
+      .then((data) => {
+        if (alive) setEnvironment(data)
+      })
+      .catch((e) => {
+        if (alive) setError(e.message)
+      })
+    return () => {
+      alive = false
+    }
+  }, [base, projectId, canAccess, tab])
   useEffect(() => {
     if (!projectId || !canAccess) return
     let alive = true
@@ -420,34 +450,18 @@ function WorkspaceSession({
     detail?.tasks[0]?.status,
     detail?.tasks[0]?.events.length,
   ])
-  const modelPicker = (
-    <label className="model-select">
-      <select
-        aria-label="生成模型"
-        value={provider}
-        disabled={locked}
-        onChange={(e) => setProvider(e.target.value as Provider)}
-      >
-        {(status?.models || []).map((model) => (
-          <option key={model.provider} value={model.provider}>
-            {model.label} · {model.configured ? model.model : '未配置密钥'}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
   const modelConfigured = !!status?.models.find((m) => m.provider === provider)
     ?.configured
   const modelHint = account.loading
-    ? '正在加载账号…'
+    ? ''
     : !canAccess
       ? account.session.user
         ? '兑换邀请码后即可开始创建应用。'
         : '登录后兑换邀请码，即可开始创建应用。'
       : !status
-        ? '正在检查生成服务…'
+        ? ''
         : !modelConfigured
-          ? '请在 .env.local 配置所选模型密钥并重启 Web 和 Worker。'
+          ? '请在 .env.local 配置 Gemini 密钥并重启 Web 和 Worker。'
           : account.session.usage?.remainingCredits === 0
             ? '体验额度已用尽，已有项目仍可查看、编辑和导出。'
             : !ready
@@ -467,25 +481,9 @@ function WorkspaceSession({
   }
   async function switchProject(id: string | null) {
     if (busy) return
-    if (
-      dirty &&
-      !(await ask('当前有未保存的编辑，离开将丢弃这些编辑。是否继续？'))
-    )
-      return
-    setProjectId(id)
+    if (!(await navigate({ ...workspaceHome, projectId: id }))) return
     setMenu(false)
     setHistory(false)
-  }
-  async function createBlank() {
-    if (busy) return
-    await perform(async () => {
-      const project = await api<Project>('/api/projects', {
-        name: '未命名项目',
-      })
-      setProjects((list) => [project, ...list])
-      setProjectId(project.id)
-      setTab('code')
-    })
   }
   async function rename() {
     if (!projectId || !projectName.trim() || busy) return
@@ -570,7 +568,6 @@ function WorkspaceSession({
     )
       return
     const requestPrompt = retryTask?.agent?.prompt || prompt.trim()
-    const requestProvider = retryTask?.agent?.provider || provider
     if (
       busy ||
       active ||
@@ -578,8 +575,7 @@ function WorkspaceSession({
       conflict ||
       !requestPrompt ||
       !aiReady ||
-      !status?.models.find((model) => model.provider === requestProvider)
-        ?.configured
+      !modelConfigured
     )
       return
     followConversation.current = true
@@ -587,18 +583,17 @@ function WorkspaceSession({
       if (!projectId) {
         const project = await api<Project>('/api/projects', {
           prompt: requestPrompt,
-          provider: requestProvider,
+          provider,
         })
         setProjects((list) => [project, ...list])
-        setProjectId(project.id)
+        await navigate({ ...workspaceHome, projectId: project.id })
         setPrompt('')
-        setTab('preview')
         return
       }
       const value = await saveDraft()
       await api(`${base}/tasks`, {
         prompt: requestPrompt,
-        provider: requestProvider,
+        provider,
         expectedRevision: value.revision,
         expectedVersionId: detail?.project.currentVersionId || null,
       })
@@ -822,7 +817,6 @@ function WorkspaceSession({
               <span>{p.name}</span>
             </button>
           ))}
-          {!projects.length && <p className="no-projects">从一句想法开始。</p>}
         </div>
         <div className="sidebar-bottom">
           <WorkspaceAccount
@@ -955,7 +949,6 @@ function WorkspaceSession({
                   onChange={(e) => setPrompt(e.target.value)}
                 />
                 <div className="composer-bottom">
-                  {modelPicker}
                   <button
                     className="primary-button"
                     type="submit"
@@ -992,14 +985,6 @@ function WorkspaceSession({
                   </button>
                 ))}
               </div>
-              <button
-                className="blank-project-button"
-                disabled={busy || !canAccess}
-                onClick={() => void createBlank()}
-              >
-                <Plus size={14} />
-                创建空白项目
-              </button>
             </div>
           </div>
         ) : (
@@ -1022,7 +1007,7 @@ function WorkspaceSession({
                       <h2>从你的想法开始。</h2>
                       <p>
                         描述你想创建的应用，或要求修改现有功能。Agent
-                        会读取源码、编辑并修复构建或浏览器错误，验证通过后保存新版本。
+                        会读取源码、编辑并完成构建后保存新版本。自动测试失败会保留提示，你仍可查看预览。
                       </p>
                       <small>也可以在源码页手动编辑并构建。</small>
                     </div>
@@ -1043,104 +1028,7 @@ function WorkspaceSession({
                           <time>{time(task.createdAt)}</time>
                         </div>
                         <div className="task-status-row">
-                          <details className="task-process">
-                            <summary
-                              className={`task-state ${task.status}`}
-                              aria-label={`${taskLabel(task)}，执行详情`}
-                              title="展开或收起执行详情"
-                            >
-                              {isActive(task) ? (
-                                <Loader2 className="spin" size={13} />
-                              ) : task.status === 'completed' ? (
-                                <Check size={13} />
-                              ) : (
-                                <Square size={12} />
-                              )}
-                              {taskLabel(task)}
-                              <ChevronRight
-                                className="task-process-chevron"
-                                size={13}
-                                aria-hidden="true"
-                              />
-                            </summary>
-                            <div className="process">
-                              {task.agent && (
-                                <p className="workspace-hint">
-                                  {task.agent.provider === 'gemini'
-                                    ? 'Gemini'
-                                    : 'GPT'}{' '}
-                                  · {task.agent.model} · {task.agent.steps} 步 ·
-                                  输出 {task.agent.usage.outputTokens} tokens
-                                </p>
-                              )}
-                              <ol>
-                                {task.events.map((event, i) => (
-                                  <li key={i}>
-                                    <pre className="task-log">
-                                      {event.message}
-                                    </pre>
-                                  </li>
-                                ))}
-                              </ol>
-                            </div>
-                          </details>
-                          {task.agent && !isActive(task) && (
-                            <div className="task-actions">
-                              {task.status === 'failed' && (
-                                <button
-                                  className="task-action"
-                                  type="button"
-                                  disabled={
-                                    locked ||
-                                    !aiReady ||
-                                    !draft ||
-                                    !status?.models.find(
-                                      (model) =>
-                                        model.provider === task.agent?.provider,
-                                    )?.configured
-                                  }
-                                  title="使用原需求和模型重新生成"
-                                  onClick={() => void generate(task)}
-                                >
-                                  <RefreshCw size={13} aria-hidden="true" />
-                                  重试
-                                </button>
-                              )}
-                              {(taskReply(task) || task.error) && (
-                                <button
-                                  className="task-action"
-                                  type="button"
-                                  title="复制回复"
-                                  onClick={() => void copyTask(task)}
-                                >
-                                  {copiedTaskId === task.id ? (
-                                    <Check size={13} aria-hidden="true" />
-                                  ) : (
-                                    <Copy size={13} aria-hidden="true" />
-                                  )}
-                                  <span role="status">
-                                    {copiedTaskId === task.id
-                                      ? '已复制'
-                                      : '复制'}
-                                  </span>
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          {isActive(task) && (
-                            <button
-                              className="task-cancel"
-                              type="button"
-                              onClick={() =>
-                                void perform(async () => {
-                                  await api(`/api/tasks/${task.id}/cancel`, {})
-                                  await refresh()
-                                })
-                              }
-                            >
-                              取消
-                            </button>
-                          )}
+                          <TaskProgress task={task} label={taskLabel(task)} />
                         </div>
                         {task.agent && task.status === 'completed' && (
                           <MarkdownReply>{taskReply(task)}</MarkdownReply>
@@ -1150,6 +1038,67 @@ function WorkspaceSession({
                         )}
                         {task.error && (
                           <p className="task-error">{task.error}</p>
+                        )}
+                        {(task.agent || isActive(task)) && (
+                          <footer className="task-actions">
+                            {task.agent && !isActive(task) && (
+                              <>
+                                {task.status === 'failed' && (
+                                  <button
+                                    className="task-action"
+                                    type="button"
+                                    disabled={
+                                      locked ||
+                                      !aiReady ||
+                                      !draft ||
+                                      !modelConfigured
+                                    }
+                                    title="使用原需求通过 Gemini 重新生成"
+                                    onClick={() => void generate(task)}
+                                  >
+                                    <RefreshCw size={13} aria-hidden="true" />
+                                    重试
+                                  </button>
+                                )}
+                                {(taskReply(task) || task.error) && (
+                                  <button
+                                    className="task-action"
+                                    type="button"
+                                    title="复制回复"
+                                    onClick={() => void copyTask(task)}
+                                  >
+                                    {copiedTaskId === task.id ? (
+                                      <Check size={13} aria-hidden="true" />
+                                    ) : (
+                                      <Copy size={13} aria-hidden="true" />
+                                    )}
+                                    <span role="status">
+                                      {copiedTaskId === task.id
+                                        ? '已复制'
+                                        : '复制'}
+                                    </span>
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {isActive(task) && (
+                              <button
+                                className="task-cancel"
+                                type="button"
+                                onClick={() =>
+                                  void perform(async () => {
+                                    await api(
+                                      `/api/tasks/${task.id}/cancel`,
+                                      {},
+                                    )
+                                    await refresh()
+                                  })
+                                }
+                              >
+                                取消
+                              </button>
+                            )}
+                          </footer>
                         )}
                       </article>
                     </Fragment>
@@ -1165,14 +1114,13 @@ function WorkspaceSession({
                 >
                   <textarea
                     aria-label="应用需求"
-                    placeholder="创建待办应用，或增加分类筛选…"
+                    placeholder="描述你想调整的地方，或继续补充需求…"
                     value={prompt}
                     maxLength={8000}
                     disabled={locked || !draft}
                     onChange={(e) => setPrompt(e.target.value)}
                   />
                   <div className="composer-bottom">
-                    {modelPicker}
                     <button
                       className="build-button"
                       type="submit"
@@ -1181,8 +1129,7 @@ function WorkspaceSession({
                         !aiReady ||
                         !draft ||
                         !prompt.trim() ||
-                        !status?.models.find((m) => m.provider === provider)
-                          ?.configured
+                        !modelConfigured
                       }
                     >
                       <Sparkles size={14} />
@@ -1205,23 +1152,11 @@ function WorkspaceSession({
             <section className="preview-panel">
               <div className="preview-toolbar">
                 <div className="tabs">
-                  {(
-                    [
-                      'preview',
-                      'code',
-                      'diff',
-                      'runtime',
-                      'cloud',
-                      'publish',
-                    ] as const
-                  ).map((key, i) => (
+                  {workspaceTabs.map((key, i) => (
                     <button
                       key={key}
                       className={tab === key ? 'active' : ''}
-                      onClick={async () => {
-                        setTab(key)
-                        if (key === 'runtime') void loadEnvironment()
-                      }}
+                      onClick={() => setTab(key)}
                     >
                       {
                         [
@@ -1832,9 +1767,12 @@ function WorkspaceSession({
                                 )
                                 setDraft(value)
                                 setFiles(value.files)
-                                setSelected(null)
                                 setHistory(false)
-                                setTab('code')
+                                await navigate({
+                                  ...route,
+                                  versionId: null,
+                                  tab: 'code',
+                                })
                                 await refresh()
                               })
                           }}

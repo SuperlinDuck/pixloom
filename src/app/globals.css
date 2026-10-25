@@ -198,12 +198,6 @@ select {
   overflow: auto;
   min-height: 80px;
 }
-.no-projects {
-  font-size: 12px;
-  line-height: 1.9;
-  color: #7d7d7d;
-  margin: 8px 14px;
-}
 .project-link {
   display: flex;
   align-items: center;
@@ -221,11 +215,18 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.project-link:hover:not(:disabled) {
+  background: #eaeaea;
+}
 .project-link.active {
   background: #e3e3e3;
   color: #333333;
 }
+.project-link.active:hover:not(:disabled) {
+  background: #dadada;
+}
 .workspace-account {
+  position: relative;
   border-top: 1px solid var(--line);
   padding-top: 16px;
 }
@@ -256,6 +257,62 @@ select {
   align-items: center;
   gap: 10px;
   min-height: 42px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 9px;
+  text-align: left;
+}
+.account-profile:hover,
+.account-profile[aria-expanded='true'] {
+  background: #e7e7e7;
+}
+.account-menu {
+  position: absolute;
+  bottom: calc(100% - 8px);
+  left: 0;
+  z-index: 40;
+  width: 272px;
+  max-width: calc(100vw - 36px);
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow:
+    0 12px 36px #00000012,
+    0 2px 6px #00000005;
+}
+.account-menu-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+  font-size: 12px;
+}
+.account-menu-heading > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.account-menu-actions {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 5px;
+}
+.account-menu-action {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 12px;
+}
+.account-menu-action:hover:not(:disabled) {
+  background: #f5f5f5;
 }
 .account-avatar {
   display: grid;
@@ -292,9 +349,15 @@ select {
   font-weight: 550;
   color: var(--ink);
 }
-.account-logout {
-  flex-shrink: 0;
+.account-role {
+  align-self: flex-start;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #e4e4e7;
   color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 .account-loading {
   display: flex;
@@ -482,7 +545,7 @@ h1 > span {
 }
 .composer-bottom {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   margin-top: 9px;
 }
@@ -510,6 +573,12 @@ h1 > span {
   cursor: pointer;
   padding-right: 8px;
   max-width: 155px;
+  min-width: 0;
+}
+.model-select select:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  -webkit-text-fill-color: currentColor;
 }
 .model-select > svg:last-child {
   pointer-events: none;
@@ -796,15 +865,40 @@ h1 > span {
   gap: 12px;
   margin-top: 10px;
 }
-.task-process {
+.task-progress {
   flex: 1;
   min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e8e4dd;
+  border-radius: 12px;
+  background: #f3f1ed;
+}
+.task-latest-progress {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+}
+.task-latest-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin: 0 0 0 21px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.task-process[open] + .task-latest-progress {
+  display: none;
 }
 .task-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
-  flex-shrink: 0;
+  margin-top: 10px;
 }
 .task-action {
   display: inline-flex;
@@ -854,7 +948,6 @@ h1 > span {
   color: #b26755;
 }
 .task-cancel {
-  margin-left: auto;
   min-height: 28px;
   padding: 3px 0;
   font-size: 12px;
@@ -863,43 +956,79 @@ h1 > span {
   color: #a48c74;
 }
 .process {
-  background: #f2f2f2;
-  border: 1px solid #e4e4e4;
-  border-radius: 7px;
-  margin-top: 12px;
-  padding: 10px;
-  color: #737373;
+  margin-top: 6px;
+  color: var(--muted);
   font-size: 12px;
+  min-width: 0;
 }
 .process ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   list-style: none;
-  padding: 4px 0 0;
+  padding: 0;
   margin: 0;
 }
 .process li {
-  position: relative;
-  padding: 9px 0 0 11px;
-  font-size: 12px;
-  line-height: 1.6;
+  min-width: 0;
+}
+.task-event-row {
   display: flex;
-  gap: 4px;
-  align-items: flex-start;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  min-height: 24px;
+  line-height: 1.7;
 }
-.process li:before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 14px;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #959595;
+.task-event-icon {
+  flex-shrink: 0;
+  color: #929292;
 }
-.process time {
-  margin-left: auto;
-  font-size: 12px;
+.task-event-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  color: #8f8f8f;
+}
+.task-event-details > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.task-event-details > summary::-webkit-details-marker {
+  display: none;
+}
+.task-event-details > summary:hover {
+  color: var(--ink);
+}
+.task-event-chevron {
+  flex-shrink: 0;
+  transition: transform 0.16s;
+}
+.task-event-details[open] > summary .task-event-chevron {
+  transform: rotate(90deg);
+}
+.task-event-details .task-log {
+  margin: 6px 0 4px 21px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  line-height: 1.7;
+}
+.task-progress-note {
+  margin: 8px 0;
+}
+.task-progress-note .markdown-reply {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.task-progress-note .markdown-reply ol {
+  display: block;
+  list-style: decimal;
+  padding-left: 20px;
+}
+.task-progress-empty {
+  margin: 4px 0 0 20px;
 }
 .summary-text {
   line-height: 1.9;
@@ -3421,10 +3550,6 @@ h1 {
 .activity-card + .user-message {
   margin-top: 28px;
 }
-.activity-card .process {
-  background: #fafafa;
-  font-size: 11px;
-}
 .chat-bottom .build-button {
   display: inline-flex;
   align-items: center;
@@ -3609,12 +3734,60 @@ h1 {
   color: inherit;
 }
 .account-usage {
-  margin-top: 10px;
+  padding: 16px 12px 12px;
   line-height: 1.5;
 }
 .account-usage p {
   margin: 3px 0;
   overflow-wrap: anywhere;
+}
+.account-points-balance {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.account-points-balance strong {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+.account-points-balance > span {
+  font-size: 12px;
+}
+.account-points-label {
+  font-size: 11px;
+}
+.account-points-track {
+  height: 6px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ededed;
+}
+.account-points-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width 200ms;
+}
+.account-usage .account-points-expiry {
+  margin-top: 10px;
+  font-size: 11px;
+}
+@media (min-width: 721px) and (max-width: 1000px) {
+  .has-project .sidebar:not(.open) .workspace-account {
+    width: 100%;
+  }
+  .has-project .sidebar:not(.open) .account-profile {
+    padding: 6px;
+  }
+  .has-project .sidebar:not(.open) .account-details {
+    display: none;
+  }
 }
 .preview-canvas {
   position: relative;

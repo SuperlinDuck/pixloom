@@ -429,7 +429,9 @@ describe('Supabase OAuth', () => {
     })
     vi.stubGlobal('fetch', fetch)
     const response = await finishSupabaseOAuth(f.callback)
-    expect(response.headers.get('location')).toContain('cloudProject=' + f.p.id)
+    expect(response.headers.get('location')).toBe(
+      `${origin}/projects/${f.p.id}/cloud`,
+    )
     expect(await externalToken('workspace-supabase')).toBe('oauth-access')
     expect(
       JSON.stringify(db().prepare('SELECT * FROM cloud_connections').all()),
