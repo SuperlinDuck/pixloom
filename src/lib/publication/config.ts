@@ -1,3 +1,4 @@
+import { MAINTENANCE_FILE } from '../maintenance'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { projectPublicId } from '../store'
@@ -54,20 +55,25 @@ export function publicationTarget(
       : `:${config.publicPort}`
   return { domain, url: `${scheme}://${domain}${port}` }
 }
-export function caddyConfig(config = publicationConfig(), localPort?: number) {
+export function caddyConfig(
+  config = publicationConfig(),
+  localPort?: number,
+  maintenanceFile = MAINTENANCE_FILE,
+) {
   if (
     localPort !== undefined &&
     (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535)
   )
     throw new Error('Caddy 测试端口无效')
   const upstream = `127.0.0.1:${config.port}`
-  const routes = `    @internal path /_pixloom /_pixloom/*\n    respond @internal 404\n    reverse_proxy ${upstream}\n`
+  const maintenance = `    @maintenance file {\n        root ${path.dirname(maintenanceFile)}\n        try_files ${path.basename(maintenanceFile)}\n    }\n    respond @maintenance "Pixloom is upgrading. Please retry shortly." 503\n`
+  const routes = `${maintenance}    @internal path /_pixloom /_pixloom/*\n    respond @internal 404\n    reverse_proxy ${upstream}\n`
   if (localPort !== undefined)
     return `{\n    admin off\n    auto_https off\n}\nhttp://:${localPort} {\n    bind 127.0.0.1\n${routes}}\n`
   const workspace = workspaceOrigin()
   const workspaceHost = new URL(workspace).host
   const workbench = workspace.startsWith('https:')
-    ? `https://${workspaceHost} {\n    request_body {\n        max_size 8MB\n    }\n    reverse_proxy 127.0.0.1:3000\n}\n`
+    ? `https://${workspaceHost} {\n    request_body {\n        max_size 8MB\n    }\n${maintenance}    reverse_proxy 127.0.0.1:3000\n}\n`
     : ''
   const cloud = process.env.PIXLOOM_CLOUD_RUNTIME_URL
   const cloudHost = cloud?.startsWith('https:')

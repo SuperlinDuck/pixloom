@@ -1,8 +1,10 @@
 name: Pixloom checks
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_call:
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -16,7 +18,14 @@ jobs:
           version: 11.25.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
+      - run: pnpm invite:verify
+      - run: sudo apt-get update && sudo apt-get install -y caddy
+      - run: sudo systemctl stop caddy
+      - run: pnpm deploy:verify
   docker-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 15

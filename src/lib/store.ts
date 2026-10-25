@@ -1,3 +1,4 @@
+import { releaseSha } from './maintenance'
 import { mkdirSync } from 'node:fs'
 import { ensurePlatformSchema } from './platform-schema'
 import {
@@ -825,8 +826,10 @@ export function acquireWorker(owner: string) {
     if (row && row.owner !== owner && Date.now() - row.heartbeat < 15000)
       return false
     db()
-      .prepare('INSERT OR REPLACE INTO worker VALUES (1,?,?)')
-      .run(owner, Date.now())
+      .prepare(
+        'INSERT OR REPLACE INTO worker (id,owner,heartbeat,releaseSha) VALUES (1,?,?,?)',
+      )
+      .run(owner, Date.now(), releaseSha() || null)
     db()
       .prepare(
         "UPDATE tasks SET status='queued',attemptId=NULL,updatedAt=? WHERE status='running'",
@@ -847,7 +850,11 @@ export function heartbeat(owner: string) {
 export function releaseWorker(owner: string) {
   db().prepare('DELETE FROM worker WHERE owner=?').run(owner)
 }
-export function workerOnline() {
+export function workerOnline(expectedRelease?: string) {
+  if (expectedRelease)
+    return !!db()
+      .prepare('SELECT id FROM worker WHERE heartbeat>? AND releaseSha=?')
+      .get(Date.now() - 15000, expectedRelease)
   return !!db()
     .prepare('SELECT id FROM worker WHERE heartbeat>?')
     .get(Date.now() - 15000)

@@ -1,3 +1,4 @@
+import { maintenanceMode } from './maintenance'
 import { NextResponse } from 'next/server'
 import { ZodError } from 'zod'
 import { StoreError } from './store'
@@ -27,6 +28,7 @@ export function errorResponse(error: unknown) {
   )
 }
 export function checkMutation(request: Request, maxBytes = 32000) {
+  if (maintenanceMode()) throw new StoreError('平台正在升级，请稍后重试', 503)
   if (!workspaceMutationAllowed(request))
     throw new StoreError('不允许跨站请求', 403)
   if (!request.headers.get('content-type')?.includes('application/json'))

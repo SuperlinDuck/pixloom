@@ -52,6 +52,7 @@ export function ensurePlatformSchema(c: DatabaseSync) {
     column('usage_ledger', 'inputWeight', 'INTEGER NOT NULL DEFAULT 1')
     column('usage_ledger', 'outputWeight', 'INTEGER NOT NULL DEFAULT 4')
     column('preview_grants', 'sessionHash', 'TEXT')
+    column('worker', 'releaseSha', 'TEXT')
     column('projects', 'ownerId', 'TEXT REFERENCES users(id)')
     column('auth_sessions', 'userId', 'TEXT REFERENCES users(id)')
     column('cloud_connections', 'ownerId', 'TEXT REFERENCES users(id)')

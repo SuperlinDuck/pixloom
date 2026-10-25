@@ -2,6 +2,8 @@
 
 适用于单机 Linux、SQLite、一个串行 Worker 的小规模内测。代码具备邀请、项目隔离、用量账本、容器回收和生产检查；真实 VPS、Google、模型和 Supabase 的最终验收需要在目标机器执行。不要复制本机的 node_modules、.next 或正在写入的 SQLite。
 
+自动部署、现有 PM2 迁移及 GitHub Secrets 配置见 [GitHub Actions 自动部署](continuous-deployment.md)。启用自动部署时 app 是版本目录的符号链接，首次准备不能提前启动缺少 app 链接的三个服务。
+
 ## 1. 安装与目录
 
 安装 Node.js 24、package.json 声明的 pnpm、Docker Engine 和 Caddy。以下示例约定代码在 `/srv/pixloom/app`，系统用户为 `pixloom`，其 HOME 为 `/srv/pixloom`。systemd 的 PATH 使用 `/usr/local/bin:/usr/bin:/bin`，需确认 node、pnpm 位于其中。按 VPS 实际内存调整服务资源限制，给系统、Docker 容器和 Caddy 留出空间。
@@ -129,7 +131,7 @@ sudo journalctl -u pixloom-monitor.service -n 100
 sudo journalctl -u pixloom-worker -f
 ```
 
-备份每天北京时间 03:30 执行，随机延迟五分钟内。脚本停止 Web、Worker 和 Gateway 后打包数据、发布目录及配置密钥，随后恢复服务，因此存在短暂维护窗口。备份在 `/srv/pixloom/backups`，权限受 umask 0077 限制；包含真实业务数据及凭证，必须加密复制到异地，并另设保留/清理策略。脚本不自动删除备份。
+备份每天北京时间 03:30 执行，随机延迟五分钟内。脚本停止 Web、Worker 和 Gateway 后打包数据、发布目录及配置密钥，随后检查三个服务恢复就绪再开放流量，因此存在短暂维护窗口。备份与自动部署共享互斥锁，维护标记已存在时会跳过，保留故障现场。备份在 `/srv/pixloom/backups`，权限受 umask 0077 限制；包含真实业务数据及凭证，必须加密复制到异地，并另设保留/清理策略。脚本不自动删除备份。
 
 恢复演练：先解包到独立目录，检查数据库 `PRAGMA integrity_check`，以隔离端口/数据目录启动匹配代码，验证项目、版本、会话、预览与发布。正式恢复须先停止三个服务，保留故障现场，再还原数据/发布目录和原加密密钥、修复属主后启动。SQLite 冷备不是 Supabase 数据备份：按 `cloud-shared.md` 导出业务记录/文件，并单独保护池身份及整体备份；Caddy 证书、部署代码版本和锁文件也需保留。发布历史重建依赖原模板镜像摘要，升级前用 `docker image save` 保存对应模板镜像以便恢复。
 

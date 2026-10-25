@@ -1,3 +1,4 @@
+import { maintenanceMode } from './maintenance'
 import {
   createHash,
   randomBytes,
@@ -112,6 +113,7 @@ export function assertAuthOrigin(request: Request) {
 }
 
 export async function startGoogleLogin() {
+  if (maintenanceMode()) throw new StoreError('平台正在升级，请稍后重试', 503)
   transaction(() => takeRate('google:global', 60))
   const oauth = client()
   const { codeVerifier, codeChallenge } =
@@ -211,6 +213,7 @@ export function signInAccount(profile: {
   email: string
   picture: string | null
 }) {
+  if (maintenanceMode()) throw new StoreError('平台正在升级，请稍后重试', 503)
   return transaction(() => {
     const existing = db()
       .prepare('SELECT * FROM users WHERE subject=?')
@@ -297,6 +300,7 @@ export function requireSignedIn(request: Request) {
   return user
 }
 export function requireWorkspaceUser(request: Request) {
+  if (maintenanceMode()) throw new StoreError('平台正在升级，请稍后重试', 503)
   if (!authRequired()) return undefined
   const user = requireSignedIn(request)
   assertActive(user)

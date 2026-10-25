@@ -129,6 +129,7 @@ pnpm publish:verify    # 临时数据库 + Docker + 真实 Caddy + 发布/更新
 
 Web 默认绑定 `127.0.0.1`，API 允许本机及明确配置的工作台来源，并拒绝跨站管理请求；受限预览以短期资源凭证兼容 opaque iframe。生产由 Caddy 公开 HTTPS 工作台与独立应用网关，内部端口不对外开放。Worker 定期回收空闲容器，已有静态预览不受影响。
 
+- [GitHub Actions 自动部署与旧 PM2 迁移](docs/continuous-deployment.md)
 - [VPS 邀请内测部署与运维](docs/vps-deployment.md)
 - [共享池配置与运维](docs/cloud-shared.md)
 - [独立后端与自有 Supabase](docs/cloud.md)

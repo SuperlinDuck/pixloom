@@ -17,6 +17,7 @@ import {
 } from '../src/lib/auth'
 import {
   acquireWorker,
+  workerOnline,
   claimTask,
   createProject,
   db,
@@ -732,6 +733,17 @@ describe('HTTPS host cookies', () => {
       role: 'admin',
       status: 'active',
     })
+  })
+})
+
+describe('release readiness', () => {
+  it('does not accept a recent heartbeat from the previous Worker release', () => {
+    acquireWorker('old-worker')
+    expect(workerOnline()).toBe(true)
+    expect(workerOnline('a'.repeat(40))).toBe(false)
+    db().prepare('UPDATE worker SET releaseSha=?').run('a'.repeat(40))
+    expect(workerOnline('a'.repeat(40))).toBe(true)
+    expect(workerOnline('b'.repeat(40))).toBe(false)
   })
 })
 

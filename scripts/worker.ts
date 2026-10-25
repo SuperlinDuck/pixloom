@@ -1,3 +1,4 @@
+import { maintenanceMode } from '../src/lib/maintenance'
 import { reapEnvironments } from '../src/lib/runtime/lifecycle'
 import { DockerRuntime } from '../src/lib/runtime/docker'
 import { assertProductionConfig } from '../src/lib/platform-config'
@@ -26,10 +27,19 @@ async function main() {
     if (!heartbeat(owner)) shutdown.abort()
   }, 3000)
   try {
-    await cleanupOrphanedTestAccounts()
+    let cleaned = false
     const runtime = new DockerRuntime()
     let lastReap = 0
     while (!shutdown.signal.aborted) {
+      // Keep the heartbeat alive, but never resume tasks or upstream cleanup during cutover.
+      if (maintenanceMode()) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
+      if (!cleaned) {
+        await cleanupOrphanedTestAccounts()
+        cleaned = true
+      }
       if (Date.now() - lastReap > 30000) {
         lastReap = Date.now()
         try {

@@ -60,3 +60,6 @@ public/uploads/*
 
 # Local verification output of the fixed sandbox template
 sandbox/template/dist/
+
+# Server release marker (written by the deployment controller)
+.pixloom-release

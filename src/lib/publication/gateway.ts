@@ -1,3 +1,4 @@
+import { maintenanceMode, releaseSha } from '../maintenance'
 import { artifactManifest } from '../cloud/manifest'
 import { sharedManifest } from '../cloud/manifest'
 import { browserAuth } from '../cloud/browser-auth'
@@ -46,6 +47,10 @@ export function gatewayHandler(
       res.end(req.method === 'HEAD' ? undefined : `HTTP ${status}`)
     }
     try {
+      if (maintenanceMode() && !(req.url || '').startsWith('/_pixloom/')) {
+        fail(503)
+        return
+      }
       if ((req.url || '').startsWith('/cloud/v2/')) {
         const origin = runtimeOrigin()
         if (req.headers.host !== new URL(origin).host) {
@@ -137,6 +142,7 @@ export function gatewayHandler(
           })
           res.end(
             JSON.stringify({
+              release: releaseSha(),
               enabled: config.enabled,
               installationId: installationId(),
               rootHash: config.rootHash,
