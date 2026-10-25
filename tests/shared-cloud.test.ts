@@ -93,6 +93,7 @@ describe.skipIf(process.env.PIXLOOM_SHARED_DB_TESTS !== '1')(
     const storage = new Map<string, Buffer>()
     const calls: string[] = []
     let failStorage = false
+    let bucketExists = false
     const refs = {
       development: 'abcdefghijklmnopqrst',
       production: 'bcdefghijklmnopqrstu',
@@ -290,8 +291,26 @@ describe.skipIf(process.env.PIXLOOM_SHARED_DB_TESTS !== '1')(
               }
             return json({})
           }
-          if (url.pathname.startsWith('/storage/v1/bucket'))
-            return json({ public: false })
+          if (url.pathname === '/storage/v1/bucket' && init.method === 'POST') {
+            expect(body).toMatchObject({
+              id: 'pixloom-cloud-v2',
+              public: false,
+              file_size_limit: 2097152,
+            })
+            bucketExists = true
+            return json({ name: 'pixloom-cloud-v2' })
+          }
+          if (url.pathname === '/storage/v1/bucket/pixloom-cloud-v2')
+            return bucketExists
+              ? json({ public: false })
+              : json(
+                  {
+                    statusCode: '404',
+                    error: 'Bucket not found',
+                    message: 'Bucket not found',
+                  },
+                  400,
+                )
           if (url.pathname.startsWith('/storage/v1/object/')) {
             expect(headers.get('apikey')).toBe('sb_secret_test')
             if (init.method === 'POST') {
@@ -764,15 +783,21 @@ describe.skipIf(process.env.PIXLOOM_SHARED_DB_TESTS !== '1')(
         ).status,
       ).toBe(400)
       failStorage = true
-      expect(
-        (
-          await request(projectA, 'files/uploads/uncertain.txt', {
-            method: 'POST',
-            token: a,
-            body: Buffer.from('uncertain'),
-          })
-        ).status,
-      ).toBe(502)
+      const uncertain = await request(projectA, 'files/uploads/uncertain.txt', {
+        method: 'POST',
+        token: a,
+        body: Buffer.from('uncertain'),
+      })
+      expect(uncertain.status).toBe(502)
+      expect(await uncertain.json()).toMatchObject({
+        message: expect.stringContaining('文件上传失败'),
+        storage: {
+          operation: 'file.upload',
+          status: 500,
+          code: 'UPSTREAM_ERROR',
+          requestId: null,
+        },
+      })
       const row = sharedEnvironment(projectA, 'development')!
       const usage = await sharedTransaction(
         'development',

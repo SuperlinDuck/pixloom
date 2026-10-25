@@ -59,6 +59,70 @@ function sharedAssets(artifact: string, origin: string) {
 describe.skipIf(process.env.PIXLOOM_CLOUD_TESTS !== '1')(
   'Cloud client in the real opaque-origin browser',
   () => {
+    it.each(['upload', 'download'] as const)(
+      'reports safe storage diagnostics for %s even when the app catches the error',
+      async (operation) => {
+        const artifact = randomUUID()
+        const assets = sharedAssets(artifact, 'http://127.0.0.1:4180')
+        const action =
+          operation === 'upload'
+            ? "cloud.upload('uploads','memo.txt',new Blob(['文件正文不得泄漏']))"
+            : "cloud.download('uploads','memo.txt')"
+        const label = operation === 'upload' ? '文件上传' : '文件下载'
+        assets.find((item) => item.path === 'app.js')!.body = Buffer.from(
+          `import {cloud} from './cloud.js';document.querySelector('button').onclick=async()=>{try{await cloud.signIn('test@example.com','test-password');await ${action};document.querySelector('output').textContent='文件已保存'}catch(error){document.querySelector('output').textContent=error.message}}`,
+        ).toString('base64')
+        const requestId = '8e5965a5-8c3e-4359-886d-186e766b96a4'
+        const report = await verifyBrowser(
+          artifact,
+          assets,
+          [
+            step('click', 'button'),
+            step('assert_text', 'output', label + '失败'),
+          ],
+          new AbortController().signal,
+          async (request) => {
+            const upload = request.url.includes('/files/')
+            return {
+              status: upload ? 502 : 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+              },
+              body: Buffer.from(
+                JSON.stringify(
+                  upload
+                    ? {
+                        message: label + '失败',
+                        storage: {
+                          operation: 'file.' + operation,
+                          status: 403,
+                          code: 'AccessDenied',
+                          requestId,
+                        },
+                        privateDetail: 'secret-must-not-leak',
+                      }
+                    : {
+                        access_token: 'app-session',
+                        expires_at: Math.floor(Date.now() / 1000) + 3600,
+                      },
+                ),
+              ),
+            }
+          },
+        )
+        expect(report.ok).toBe(false)
+        expect(report.completedSteps).toBe(2)
+        expect(report.output).toContain(label)
+        expect(report.output).toContain('上游 HTTP 403')
+        expect(report.output).toContain('AccessDenied')
+        expect(report.output).toContain(requestId)
+        expect(report.output).not.toContain('secret-must-not-leak')
+        expect(report.output).not.toContain('文件正文不得泄漏')
+      },
+      30000,
+    )
+
     it.each(['transport', 'gateway'] as const)(
       'waits for slow shared Cloud login through %s before asserting user state',
       async (mode) => {

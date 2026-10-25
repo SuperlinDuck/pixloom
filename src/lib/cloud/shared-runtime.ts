@@ -18,6 +18,11 @@ import {
 } from './shared-auth'
 import { cloudSchema, type AppSchema } from './schema'
 import { emailConfirmationUrl } from './email-confirmation'
+import {
+  ensurePrivateStorageBucket,
+  storageFetch,
+  StorageError,
+} from './shared-storage'
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -288,13 +293,8 @@ async function sharedFile(
 ) {
   const object = storagePath(row, userId, bucket, path),
     config = environmentConfig(row)
-  const base = config.origin + '/storage/v1/object/'
-  const headers = {
-    apikey: config.serviceKey,
-    Authorization: `Bearer ${config.serviceKey}`,
-  }
-  const objectUrl =
-    base +
+  const objectPath =
+    'object/' +
     'pixloom-cloud-v2/' +
     object.split('/').map(encodeURIComponent).join('/')
   if (request.method === 'GET') {
@@ -309,15 +309,7 @@ async function sharedFile(
         ).rows[0],
     )
     if (!known) throw new StoreError('文件不存在', 404)
-    const upstream = await fetch(objectUrl, {
-      headers,
-      redirect: 'error',
-      signal: AbortSignal.timeout(10000),
-    })
-    if (!upstream.ok) {
-      await upstream.body?.cancel()
-      throw new StoreError('文件暂不可用', 502)
-    }
+    const upstream = await storageFetch(config, 'file.download', objectPath)
     const bytes = await boundedBody(
       new Request('http://file', {
         method: 'POST',
@@ -346,51 +338,8 @@ async function sharedFile(
     (await poolCapacity(row.environment)).blocked
   )
     throw new StoreError('共享池容量不足', 409)
-  if (request.method === 'POST') {
-    const bucket = await fetch(
-      config.origin + '/storage/v1/bucket/pixloom-cloud-v2',
-      { headers, redirect: 'error', signal: AbortSignal.timeout(5000) },
-    )
-    if (bucket.status === 404) {
-      await bucket.body?.cancel()
-      const created = await fetch(config.origin + '/storage/v1/bucket', {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: 'pixloom-cloud-v2',
-          name: 'pixloom-cloud-v2',
-          public: false,
-          file_size_limit: 2097152,
-        }),
-        redirect: 'error',
-        signal: AbortSignal.timeout(5000),
-      })
-      if (!created.ok && created.status !== 409) {
-        await created.body?.cancel()
-        throw new StoreError('私有文件存储初始化失败', 502)
-      }
-      await created.body?.cancel()
-    } else if (!bucket.ok) {
-      await bucket.body?.cancel()
-      throw new StoreError('私有文件存储不可用', 502)
-    } else {
-      const value = JSON.parse(
-        (
-          await boundedBody(
-            new Request('http://bucket', {
-              method: 'POST',
-              body: bucket.body,
-              duplex: 'half',
-            } as RequestInit),
-            64000,
-          )
-        ).toString(),
-      )
-      if (value.public !== false)
-        throw new StoreError('共享池存储桶必须为私有', 503)
-    }
-  }
-  let failed = false
+  if (request.method === 'POST') await ensurePrivateStorageBucket(config)
+  let failure: unknown = null
   await sharedTransaction(row.environment, async (client) => {
     const usage = (
       await client.query(
@@ -436,12 +385,13 @@ async function sharedFile(
       )
     }
     try {
-      const upstream = await fetch(
-        request.method === 'POST' ? objectUrl : base + 'pixloom-cloud-v2',
+      const upstream = await storageFetch(
+        config,
+        request.method === 'POST' ? 'file.upload' : 'file.delete',
+        request.method === 'POST' ? objectPath : 'object/pixloom-cloud-v2',
         {
           method: request.method,
           headers: {
-            ...headers,
             'Content-Type':
               request.method === 'POST'
                 ? request.headers.get('content-type') ||
@@ -453,11 +403,8 @@ async function sharedFile(
             request.method === 'POST'
               ? bytes
               : JSON.stringify({ prefixes: [object] }),
-          redirect: 'error',
-          signal: AbortSignal.timeout(4000),
         },
       )
-      if (!upstream.ok) throw new Error('storage failure')
       await upstream.body?.cancel()
       if (request.method === 'POST') {
         await client.query(
@@ -478,11 +425,12 @@ async function sharedFile(
           [row.id, delta],
         )
       }
-    } catch {
-      failed = true
+    } catch (error) {
+      failure = error
     }
   })
-  if (failed)
+  if (failure instanceof StorageError) throw failure
+  if (failure)
     throw new StoreError('文件操作未确认；额度预留已保留，可重试同一路径', 502)
   return response({ ok: true, path })
 }
@@ -628,7 +576,15 @@ export async function sharedRuntimeHandler(
     }
   } catch (error) {
     if (error instanceof StoreError)
-      return response({ message: error.message }, error.status)
+      return response(
+        {
+          message: error.message,
+          ...(error instanceof StorageError
+            ? { storage: error.diagnostic }
+            : {}),
+        },
+        error.status,
+      )
     if (error instanceof z.ZodError)
       return response({ message: '请求字段无效' }, 400)
     return response({ message: '共享后端暂不可用' }, 503)

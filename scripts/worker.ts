@@ -5,13 +5,10 @@ import { assertProductionConfig } from '../src/lib/platform-config'
 import { cleanupOrphanedTestAccounts } from '../src/lib/cloud/test-account'
 import { loadEnvConfig } from '@next/env'
 import { randomUUID } from 'node:crypto'
-import {
-  acquireWorker,
-  claimTask,
-  heartbeat,
-  releaseWorker,
-} from '../src/lib/store'
+import { acquireWorker, heartbeat, releaseWorker } from '../src/lib/store'
 import { runTask } from '../src/lib/runner'
+import { WorkerScheduler } from '../src/lib/worker-scheduler'
+import { workerConcurrency } from '../src/lib/worker-config'
 
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production')
 assertProductionConfig()
@@ -22,13 +19,22 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const)
 async function main() {
   if (!acquireWorker(owner))
     throw new Error('已有 Worker 正在运行。退出后请等待 15 秒再重启。')
-  console.log('Pixloom Worker 已启动，等待生成任务。')
+  console.log(`Pixloom Worker 已启动，任务并发 ${workerConcurrency()}。`)
   const pulse = setInterval(() => {
     if (!heartbeat(owner)) shutdown.abort()
   }, 3000)
+  const runtime = new DockerRuntime()
+  const scheduler = new WorkerScheduler(
+    owner,
+    (task) => runTask(task, runtime, shutdown.signal, owner),
+    () => {
+      console.error('任务执行异常，停止领取任务；重启后从检查点恢复。')
+      process.exitCode = 1
+      shutdown.abort()
+    },
+  )
   try {
     let cleaned = false
-    const runtime = new DockerRuntime()
     let lastReap = 0
     while (!shutdown.signal.aborted) {
       // Keep the heartbeat alive, but never resume tasks or upstream cleanup during cutover.
@@ -48,11 +54,12 @@ async function main() {
           console.error('环境回收失败，请检查 Docker；下轮重试。')
         }
       }
-      const task = claimTask(owner)
-      if (task) await runTask(task, runtime, shutdown.signal, owner)
-      else await new Promise((resolve) => setTimeout(resolve, 500))
+      if (!shutdown.signal.aborted && !maintenanceMode()) scheduler.dispatch()
+      await new Promise((resolve) => setTimeout(resolve, 500))
     }
   } finally {
+    shutdown.abort()
+    await scheduler.drain()
     clearInterval(pulse)
     releaseWorker(owner)
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { verifyBrowser } from '../src/lib/browser'
 import { browserTestSchema, type BrowserStep } from '../src/lib/browser-schema'
 import type { BuildAsset } from '../src/lib/types'
@@ -59,6 +59,39 @@ describe('browser test input boundaries', () => {
 describe.skipIf(process.env.PIXLOOM_BROWSER_TESTS !== '1')(
   'real sandboxed Chromium verification',
   () => {
+    it('announces a loaded candidate while the behavior result is still pending', async () => {
+      const onLoaded = vi.fn()
+      const report = await verifyBrowser(
+        'candidate',
+        source(
+          '<button>测试</button><output>未点击</output>',
+          `document.querySelector('button').onclick=()=>document.querySelector('output').textContent='已点击'`,
+        ),
+        [step('click', 'button'), step('assert_text', 'output', '已点击')],
+        new AbortController().signal,
+        undefined,
+        { onLoaded },
+      )
+      expect(onLoaded).toHaveBeenCalledTimes(1)
+      expect(report, report.output).toMatchObject({
+        ok: true,
+        completedSteps: 2,
+      })
+    }, 30000)
+
+    it('does not announce a candidate with a page loading error', async () => {
+      const onLoaded = vi.fn()
+      const report = await verifyBrowser(
+        'candidate',
+        source('页面', `throw new Error('broken loading')`),
+        [],
+        new AbortController().signal,
+        undefined,
+        { onLoaded },
+      )
+      expect(report.ok).toBe(false)
+      expect(onLoaded).not.toHaveBeenCalled()
+    }, 30000)
     it('loads ES modules under the production CSP and verifies state changes', async () => {
       const result = await run(
         source(

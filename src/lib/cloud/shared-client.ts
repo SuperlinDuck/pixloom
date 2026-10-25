@@ -49,7 +49,7 @@ async function request(path,options={}){
  const headers={...(session?{Authorization:'Bearer '+session.access_token}:{}),...options.headers};
  if(options.body!==undefined&&!(options.body instanceof Blob))headers['Content-Type']='application/json';
  const response=await fetch(value.endpoint+'/'+path,{method:options.method||'GET',headers,body:options.body===undefined?undefined:options.body instanceof Blob?options.body:JSON.stringify(options.body),redirect:'error',credentials:'omit'});
- if(options.blob){if(!response.ok)throw failure('文件下载失败',response.status);return response.blob()}
+ if(options.blob){if(!response.ok){const result=await response.json().catch(()=>null);throw failure(result?.message||'文件下载失败',response.status)}return response.blob()}
  const result=await response.json();if(!response.ok){if(response.status===401)session=null;throw failure(result.message||'Cloud 请求失败',response.status)}return result;
 }
 const name=value=>{if(!/^[a-z][a-z0-9_]{0,39}$/.test(value))throw new Error('名称无效');return value};

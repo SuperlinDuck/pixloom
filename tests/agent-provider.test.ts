@@ -1,16 +1,101 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { geminiProvider, openaiProvider } from '../src/lib/ai/provider'
 import { requireModel } from '../src/lib/ai/config'
+import { modelRequests } from '../src/lib/ai/request-limiter'
+import type { AgentInput } from '../src/lib/ai/tools'
 const response = (value: unknown) =>
   new Response(JSON.stringify(value), {
     headers: { 'Content-Type': 'application/json' },
   })
+beforeEach(() => {
+  vi.stubEnv('GEMINI_CONTEXT_WINDOW_TOKENS', '128000')
+  vi.stubEnv('OPENAI_CONTEXT_WINDOW_TOKENS', '128000')
+})
 afterEach(() => {
+  modelRequests.cooldowns.clear()
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
 })
 describe('native coding protocols', () => {
+  it.each(['gemini', 'openai'] as const)(
+    'checks %s native history and pending tool results without mutating or sending oversized requests',
+    async (name) => {
+      vi.stubEnv(
+        name === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY',
+        'fake',
+      )
+      vi.stubEnv(
+        name === 'gemini'
+          ? 'GEMINI_CONTEXT_WINDOW_TOKENS'
+          : 'OPENAI_CONTEXT_WINDOW_TOKENS',
+        '65536',
+      )
+      const opaque = 'opaque'.repeat(9000)
+      const fetcher = vi.fn().mockImplementation(async () =>
+        response(
+          name === 'gemini'
+            ? {
+                candidates: [
+                  {
+                    finishReason: 'STOP',
+                    content: {
+                      role: 'model',
+                      parts: [
+                        {
+                          functionCall: {
+                            id: 'call-1',
+                            name: 'list_files',
+                            args: {},
+                          },
+                          thoughtSignature: opaque,
+                        },
+                      ],
+                    },
+                  },
+                ],
+              }
+            : {
+                status: 'completed',
+                output: [
+                  { type: 'reasoning', encrypted_content: opaque },
+                  {
+                    type: 'function_call',
+                    call_id: 'call-1',
+                    name: 'list_files',
+                    arguments: '{}',
+                  },
+                ],
+              },
+        ),
+      )
+      vi.stubGlobal('fetch', fetcher)
+      const provider = name === 'gemini' ? geminiProvider : openaiProvider
+      const session = provider.createSession({
+        model: 'test',
+        prompt: 'todo',
+        signal: new AbortController().signal,
+      })
+      const pending: AgentInput[] = [
+        { type: 'tool', id: 'call-1', name: 'list_files', output: '[]' },
+      ]
+      expect(session.needsCompaction?.(pending, 1000)).toBe(false)
+      expect(
+        session.needsCompaction?.(
+          [{ type: 'user', text: 'x'.repeat(50000) }],
+          1000,
+        ),
+      ).toBe(true)
+      await session.next([], 1000)
+      const body = JSON.parse(fetcher.mock.calls[0][1].body)
+      expect(name === 'gemini' ? body.contents : body.input).toHaveLength(1)
+      expect(session.needsCompaction?.(pending, 1000)).toBe(true)
+      await expect(session.next(pending, 1000)).rejects.toThrow(
+        '需要先压缩历史',
+      )
+      expect(fetcher).toHaveBeenCalledTimes(1)
+    },
+  )
   it('replays Gemini thought signatures and native tool ids without persisting hidden thoughts as text', async () => {
     vi.stubEnv('GEMINI_API_KEY', 'fake')
     const content = {

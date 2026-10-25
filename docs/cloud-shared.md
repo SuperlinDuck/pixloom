@@ -60,6 +60,12 @@ PIXLOOM_CLOUD_LEGACY_PROVISIONING=0
 
 应用侧继续使用 `cloud.signUp/signIn/signOut/getUser/select/insert/update/remove/upload/download`。查询支持 `select`、单字段 `order`、`limit`、`offset`，以及字段上的 `eq/neq/gt/gte/lt/lte/is.null` 过滤；不接受任意 SQL 或 PostgREST 表达式。新增 `cloud.removeFile`。浏览器预览仅放行绑定应用环境的 Cloud 路径。
 
+应用在 schema 声明逻辑 `buckets` 后，平台在首次上传时自动创建物理私有桶，无需模型或用户手工建桶。缺桶识别兼容 HTTP 404、`NoSuchBucket` 以及旧版 HTTP 400 的 `Bucket not found`；其他 400、认证和服务故障不会被当成缺桶。创建成功或并发创建返回已存在后，平台重新读取并确认 `public: false`，拒绝向公开桶写入。
+
+文件操作失败返回操作阶段和受控诊断字段 `storage`（上游 HTTP 状态、白名单错误码和请求 UUID），同时写入 Gateway 标准错误日志；浏览器验证报告也会显示这些字段。日志不包含管理密钥、请求头、文件路径或文件正文。上传结果未确认时继续保留额度预留，只能重试同一路径或显式清理；应用必须保留输入、显示失败并允许重试，上传成功前不能编造文件路径或宣称文件已保存。若正文另存数据库，必须清楚区分正文已保存与文件尚未上传。文件验收需实际上传并下载比对正文，不能仅断言按钮可见。
+
+固定 Vite 模板会在打包客户端模块前检查未定义变量，覆盖登录后分支里的状态引用；内联 ESLint 指令不能关闭检查。模板依赖或配置修改后需执行 `pnpm sandbox:prepare` 更新固定运行镜像，已有构建产物保持不可变。
+
 ## 配额与容量
 
 默认每池最多 30 个应用环境；每应用环境最多 10,000 条记录、10 MiB 逻辑记录字节、10 MiB 文件、500 个文件及 1,000 个成员。单记录最多 64 KiB，单文件最多 2 MiB，查询单页最多 200 条且响应最多 2 MiB。

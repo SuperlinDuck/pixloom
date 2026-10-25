@@ -1,10 +1,12 @@
 import { releaseSha } from './maintenance'
+import { workerConcurrency } from './worker-config'
 import { mkdirSync } from 'node:fs'
 import { ensurePlatformSchema } from './platform-schema'
 import {
-  assertProjectCapacity,
+  assertActive,
   assertTaskCapacity,
   assertUserStorage,
+  userById,
 } from './tenancy'
 import path from 'node:path'
 import { randomUUID, randomInt } from 'node:crypto'
@@ -21,6 +23,7 @@ import type {
   RuntimeInfo,
   SourceFile,
   Task,
+  TaskSummary,
   TaskKind,
   Version,
   VersionDetail,
@@ -29,6 +32,13 @@ import type {
 const globalStore = globalThis as unknown as {
   pixloomDb?: DatabaseSync
   pixloomBrowserSchemaDb?: DatabaseSync
+  pixloomCandidateSchemaDb?: DatabaseSync
+}
+const candidatePreviewSchema = `CREATE TABLE IF NOT EXISTS task_previews (taskId TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,attemptId TEXT NOT NULL,artifactId TEXT NOT NULL UNIQUE REFERENCES preview_artifacts(id) ON DELETE CASCADE,usesCloud INTEGER NOT NULL);`
+function ensureCandidatePreviewSchema(connection: DatabaseSync) {
+  if (globalStore.pixloomCandidateSchemaDb === connection) return
+  connection.exec(candidatePreviewSchema)
+  globalStore.pixloomCandidateSchemaDb = connection
 }
 const browserSessionSchema = `
     CREATE TABLE IF NOT EXISTS cloud_browsers_v3 (tokenHash TEXT PRIMARY KEY,expiresAt INTEGER NOT NULL);
@@ -55,6 +65,7 @@ export class StoreError extends Error {
 export function db() {
   if (globalStore.pixloomDb) {
     ensureBrowserSessionSchema(globalStore.pixloomDb)
+    ensureCandidatePreviewSchema(globalStore.pixloomDb)
     return globalStore.pixloomDb
   }
   const directory = path.resolve(process.env.PIXLOOM_DATA_DIR || '.pixloom')
@@ -76,12 +87,14 @@ export function db() {
     CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,kind TEXT NOT NULL,status TEXT NOT NULL,baseVersionId TEXT,expectedDraftRevision INTEGER NOT NULL,attemptId TEXT,targetVersionId TEXT,candidateFiles TEXT NOT NULL,resultVersionId TEXT,summary TEXT NOT NULL,events TEXT NOT NULL,error TEXT,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS project_title_jobs (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,taskId TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,status TEXT NOT NULL);
     CREATE UNIQUE INDEX IF NOT EXISTS one_active_task ON tasks(projectId) WHERE status IN ('queued','running');
+    CREATE INDEX IF NOT EXISTS tasks_dispatch ON tasks(status,createdAt);
     CREATE TABLE IF NOT EXISTS preview_artifacts (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,sourceHash TEXT NOT NULL,templateId TEXT NOT NULL,bytes INTEGER NOT NULL,createdAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS preview_assets (artifactId TEXT NOT NULL REFERENCES preview_artifacts(id) ON DELETE CASCADE,path TEXT NOT NULL,contentType TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(artifactId,path));
     CREATE TABLE IF NOT EXISTS versions (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,number INTEGER NOT NULL,parentVersionId TEXT,restoredFromVersionId TEXT,source TEXT NOT NULL,taskId TEXT NOT NULL UNIQUE REFERENCES tasks(id),summary TEXT NOT NULL,files TEXT NOT NULL,hash TEXT NOT NULL,templateId TEXT NOT NULL,artifactId TEXT NOT NULL REFERENCES preview_artifacts(id),createdAt TEXT NOT NULL,UNIQUE(projectId,number));
     CREATE TABLE IF NOT EXISTS runtime_workspaces (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,state TEXT NOT NULL,loadedHash TEXT,updatedAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS draft_backups (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,baseVersionId TEXT,revision INTEGER NOT NULL,files TEXT NOT NULL,createdAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS worker (id INTEGER PRIMARY KEY CHECK(id=1),owner TEXT NOT NULL,heartbeat INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS worker_user_turns (userKey TEXT PRIMARY KEY,turn INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS releases (id TEXT PRIMARY KEY,projectId TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,taskId TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,versionId TEXT NOT NULL REFERENCES versions(id) ON DELETE CASCADE,artifactId TEXT NOT NULL REFERENCES preview_artifacts(id),sourceHash TEXT NOT NULL,templateId TEXT NOT NULL,action TEXT NOT NULL,status TEXT NOT NULL,domain TEXT NOT NULL,url TEXT NOT NULL,previousReleaseId TEXT,restoredFromReleaseId TEXT,error TEXT,createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS releases_project ON releases(projectId,createdAt);
     CREATE TABLE IF NOT EXISTS published_sites (projectId TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,releaseId TEXT NOT NULL REFERENCES releases(id) ON DELETE CASCADE,domain TEXT NOT NULL UNIQUE);
@@ -134,6 +147,7 @@ export function db() {
   )
     c.exec('ALTER TABLE tasks ADD COLUMN agent TEXT')
   ensureBrowserSessionSchema(c)
+  ensureCandidatePreviewSchema(c)
   ensurePlatformSchema(c)
   globalStore.pixloomDb = c
   c.prepare('INSERT OR IGNORE INTO publication_meta VALUES (1,?)').run(
@@ -233,13 +247,18 @@ export function getRuntime(id: string): RuntimeInfo | null {
 export function getProject(id: string): ProjectDetail {
   const project = projectById(id),
     { files: _files, ...draft } = getDraft(id)
+  const queue = taskQueueInformation()
   const tasks = db()
     .prepare(
       'SELECT * FROM tasks WHERE projectId=? ORDER BY createdAt DESC,rowid DESC LIMIT 30',
     )
     .all(id)
     .map(decodeTask)
-    .map(({ candidateFiles: _files, ...task }) => task)
+    .map(({ candidateFiles: _files, ...task }) => ({
+      ...task,
+      candidatePreview: candidatePreview(task),
+      ...(task.status === 'queued' ? { queue: queue.get(task.id) } : {}),
+    }))
   return {
     project,
     draft,
@@ -261,7 +280,7 @@ function insertProject(
   value: ReturnType<typeof snapshot>,
   ownerId?: string,
 ) {
-  assertProjectCapacity(ownerId)
+  if (ownerId) assertActive(userById(ownerId))
   const id = randomUUID(),
     time = now()
   db()
@@ -501,6 +520,42 @@ export function enqueueTask(
     ),
   )
 }
+export function retryAgentTask(
+  taskId: string,
+  expectedRevision: number,
+  expectedVersionId: string | null,
+  agent: AgentState,
+): Task {
+  return transaction(() => {
+    const task = getTask(taskId)
+    if (task.kind !== 'agent' || task.status !== 'failed' || !task.agent)
+      throw new StoreError('只能重试失败的 AI 任务', 409)
+    const project = projectById(task.projectId)
+    assertTaskCapacity(task.projectId, 'agent')
+    assertIdle(task.projectId)
+    const draft = assertRevision(task.projectId, expectedRevision)
+    if (project.currentVersionId !== expectedVersionId)
+      throw new StoreError('当前版本已变化，请刷新后重试', 409)
+    // Keep the conversation identity and position, but start a fresh execution
+    // from the saved draft. Billing reservations remain in the usage ledger.
+    db()
+      .prepare(
+        `UPDATE tasks SET status='queued',baseVersionId=?,expectedDraftRevision=?,
+          attemptId=NULL,targetVersionId=NULL,candidateFiles=?,resultVersionId=NULL,
+          events='[]',error=NULL,agent=?,updatedAt=? WHERE id=?`,
+      )
+      .run(
+        project.currentVersionId,
+        draft.revision,
+        JSON.stringify(draft.files),
+        JSON.stringify({ ...agent, prompt: task.agent.prompt }),
+        now(),
+        task.id,
+      )
+    assertStorageBudget(task.projectId)
+    return getTask(task.id)
+  })
+}
 export function insertTask(
   projectId: string,
   kind: TaskKind,
@@ -567,7 +622,7 @@ export function insertTask(
       ),
       null,
       label,
-      JSON.stringify([{ at: time, message: '操作已排队，等待 Worker' }]),
+      JSON.stringify([]),
       null,
       time,
       time,
@@ -576,15 +631,79 @@ export function insertTask(
   assertStorageBudget(projectId)
   return getTask(id)
 }
-export function claimTask(owner?: string): Task | undefined {
+const schedulingKey = (project: { id: string; ownerId: string | null }) =>
+  project.ownerId ? `user:${project.ownerId}` : `project:${project.id}`
+
+function schedulingQueue(excludeProjects: string[] = []) {
+  const busy = new Set(
+    (
+      db()
+        .prepare(
+          `SELECT p.id,p.ownerId FROM tasks t JOIN projects p ON p.id=t.projectId WHERE t.status='running'
+          ${excludeProjects.length ? `UNION SELECT id,ownerId FROM projects WHERE id IN (${excludeProjects.map(() => '?').join(',')})` : ''}`,
+        )
+        .all(...excludeProjects) as { id: string; ownerId: string | null }[]
+    ).map(schedulingKey),
+  )
+  const queued = db()
+    .prepare(
+      `SELECT t.id,COALESCE('user:'||p.ownerId,'project:'||p.id) AS userKey
+       FROM tasks t JOIN projects p ON p.id=t.projectId
+       LEFT JOIN worker_user_turns f ON f.userKey=COALESCE('user:'||p.ownerId,'project:'||p.id)
+       WHERE t.status='queued'
+       ORDER BY COALESCE(f.turn,0),t.createdAt,t.rowid`,
+    )
+    .all() as { id: string; userKey: string }[]
+  return { queued, busy }
+}
+
+// Only aggregate counts leave the server, never other users' task identifiers.
+export function taskQueueInformation() {
+  const { queued, busy } = schedulingQueue()
+  const result = new Map<string, { ahead: number; waitingForUser: boolean }>()
+  const seen = new Set<string>()
+  let ahead = 0
+  for (const row of queued) {
+    const waitingForUser = busy.has(row.userKey) || seen.has(row.userKey)
+    result.set(row.id, { ahead, waitingForUser })
+    if (!waitingForUser) {
+      ahead++
+      seen.add(row.userKey)
+    }
+  }
+  return result
+}
+
+export function claimTask(
+  owner?: string,
+  scheduling?: { excludeProjects: string[] },
+): Task | undefined {
   return transaction(() => {
     if (owner && !ownsWorker(owner)) return
-    const row = db()
-      .prepare(
-        "SELECT id FROM tasks WHERE status='queued' ORDER BY createdAt,rowid LIMIT 1",
-      )
-      .get() as { id: string } | undefined
+    let row: { id: string; userKey?: string } | undefined
+    if (scheduling) {
+      const count = db()
+        .prepare("SELECT count(*) AS n FROM tasks WHERE status='running'")
+        .get() as { n: number }
+      if (count.n >= workerConcurrency()) return
+      const { queued, busy } = schedulingQueue(scheduling.excludeProjects)
+      row = queued.find((task) => !busy.has(task.userKey))
+    } else {
+      // Low-level callers and verification scripts retain FIFO claiming.
+      row = db()
+        .prepare(
+          "SELECT id FROM tasks WHERE status='queued' ORDER BY createdAt,rowid LIMIT 1",
+        )
+        .get() as { id: string } | undefined
+    }
     if (!row) return
+    if (row.userKey)
+      db()
+        .prepare(
+          `INSERT INTO worker_user_turns VALUES (?,(SELECT COALESCE(max(turn),0)+1 FROM worker_user_turns))
+           ON CONFLICT(userKey) DO UPDATE SET turn=excluded.turn`,
+        )
+        .run(row.userKey)
     db()
       .prepare(
         "UPDATE tasks SET status='running',attemptId=?,updatedAt=? WHERE id=?",
@@ -622,6 +741,7 @@ export function cancelTask(id: string) {
         "UPDATE tasks SET status='cancelled',attemptId=NULL,updatedAt=? WHERE id=? AND status IN ('queued','running')",
       )
       .run(now(), id)
+    clearCandidatePreview(id)
     db()
       .prepare(
         "UPDATE releases SET status='cancelled',updatedAt=? WHERE taskId=? AND status IN ('queued','staging','verifying')",
@@ -633,6 +753,7 @@ export function cancelTask(id: string) {
 export function finishTask(task: Task, error?: string) {
   return transaction(() => {
     if (!attemptActive(task)) return false
+    clearCandidatePreview(task.id)
     db()
       .prepare('UPDATE tasks SET status=?,error=?,updatedAt=? WHERE id=?')
       .run(error ? 'failed' : 'completed', error || null, now(), task.id)
@@ -675,7 +796,7 @@ export function artifactFor(
   return (
     db()
       .prepare(
-        'SELECT id FROM preview_artifacts WHERE projectId=? AND sourceHash=? AND templateId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1',
+        'SELECT id FROM preview_artifacts WHERE projectId=? AND sourceHash=? AND templateId=? AND NOT EXISTS (SELECT 1 FROM task_previews WHERE artifactId=preview_artifacts.id) ORDER BY createdAt DESC,rowid DESC LIMIT 1',
       )
       .get(projectId, hash, templateId) as { id: string } | undefined
   )?.id
@@ -751,7 +872,12 @@ export function completeBuild(
       draft.revision !== task.expectedDraftRevision
     )
       throw new StoreError('任务基线已失效，结果未提交', 409)
-    if (bundle) {
+    const existing = db()
+      .prepare(
+        'SELECT id FROM preview_artifacts WHERE id=? AND projectId=? AND sourceHash=? AND templateId=?',
+      )
+      .get(artifactId, task.projectId, value.hash, templateId)
+    if (bundle && !existing) {
       db()
         .prepare('INSERT INTO preview_artifacts VALUES (?,?,?,?,?,?)')
         .run(
@@ -765,14 +891,7 @@ export function completeBuild(
       const insert = db().prepare('INSERT INTO preview_assets VALUES (?,?,?,?)')
       for (const asset of bundle.assets)
         insert.run(artifactId, asset.path, asset.contentType, asset.body)
-    } else if (
-      !db()
-        .prepare(
-          'SELECT id FROM preview_artifacts WHERE id=? AND projectId=? AND sourceHash=? AND templateId=?',
-        )
-        .get(artifactId, task.projectId, value.hash, templateId)
-    )
-      throw new StoreError('可复用产物不存在', 409)
+    } else if (!existing) throw new StoreError('可复用产物不存在', 409)
     assertStorageBudget(task.projectId)
     if (task.kind === 'preview') {
       db()
@@ -839,8 +958,90 @@ export function completeBuild(
         "UPDATE tasks SET status='completed',candidateFiles='[]',resultVersionId=?,events=?,updatedAt=? WHERE id=?",
       )
       .run(id, JSON.stringify(events), time, task.id)
+    clearCandidatePreview(task.id)
     assertStorageBudget(task.projectId)
     return getVersion(task.projectId, id)
+  })
+}
+// A loaded candidate is private preview state, never a version or a build cache hit.
+export function candidatePreview(
+  task: Pick<Task, 'id' | 'status' | 'attemptId'>,
+): TaskSummary['candidatePreview'] {
+  if (task.status !== 'running' || !task.attemptId) return undefined
+  const row = db()
+    .prepare(
+      `SELECT a.id AS artifactId,a.sourceHash,p.usesCloud FROM task_previews p
+       JOIN preview_artifacts a ON a.id=p.artifactId
+       JOIN tasks t ON t.id=p.taskId AND t.attemptId=p.attemptId
+       WHERE p.taskId=? AND p.attemptId=? AND t.status='running'`,
+    )
+    .get(task.id, task.attemptId) as
+    { artifactId: string; sourceHash: string; usesCloud: number } | undefined
+  return row ? { ...row, usesCloud: !!row.usesCloud } : undefined
+}
+
+function clearCandidatePreview(taskId: string) {
+  const row = db()
+    .prepare('SELECT artifactId FROM task_previews WHERE taskId=?')
+    .get(taskId) as { artifactId: string } | undefined
+  if (!row) return
+  db().prepare('DELETE FROM task_previews WHERE taskId=?').run(taskId)
+  db()
+    .prepare(
+      `DELETE FROM preview_artifacts WHERE id=?
+       AND NOT EXISTS (SELECT 1 FROM versions WHERE artifactId=preview_artifacts.id)
+       AND NOT EXISTS (SELECT 1 FROM releases WHERE artifactId=preview_artifacts.id)`,
+    )
+    .run(row.artifactId)
+}
+
+export function stageCandidatePreview(
+  task: Task,
+  templateId: string,
+  artifactId: string,
+  assets: BuildAsset[],
+  owner?: string,
+) {
+  return transaction(() => {
+    if (!attemptActive(task, owner)) return false
+    const project = projectById(task.projectId)
+    const draft = getDraft(task.projectId)
+    if (
+      task.kind !== 'agent' ||
+      project.currentVersionId !== task.baseVersionId ||
+      draft.revision !== task.expectedDraftRevision
+    )
+      throw new StoreError('任务基线已失效，候选预览未更新', 409)
+    if (candidatePreview(task)?.artifactId === artifactId) return true
+    const bundle = validateAssets(assets)
+    clearCandidatePreview(task.id)
+    db()
+      .prepare('INSERT INTO preview_artifacts VALUES (?,?,?,?,?,?)')
+      .run(
+        artifactId,
+        task.projectId,
+        snapshot(task.candidateFiles).hash,
+        templateId,
+        bundle.bytes,
+        now(),
+      )
+    const insert = db().prepare('INSERT INTO preview_assets VALUES (?,?,?,?)')
+    for (const asset of bundle.assets)
+      insert.run(artifactId, asset.path, asset.contentType, asset.body)
+    db()
+      .prepare('INSERT INTO task_previews VALUES (?,?,?,?)')
+      .run(
+        task.id,
+        task.attemptId,
+        artifactId,
+        Number(
+          task.candidateFiles.some(
+            (file) => file.path === 'src/pixloom-cloud.js',
+          ),
+        ),
+      )
+    assertStorageBudget(task.projectId)
+    return true
   })
 }
 export function versionDelivery(projectId: string, versionId: string) {
@@ -909,6 +1110,10 @@ export function acquireWorker(owner: string) {
       { owner: string; heartbeat: number } | undefined
     if (row && row.owner !== owner && Date.now() - row.heartbeat < 15000)
       return false
+    for (const preview of db()
+      .prepare('SELECT taskId FROM task_previews')
+      .all() as { taskId: string }[])
+      clearCandidatePreview(preview.taskId)
     db()
       .prepare(
         'INSERT OR REPLACE INTO worker (id,owner,heartbeat,releaseSha) VALUES (1,?,?,?)',

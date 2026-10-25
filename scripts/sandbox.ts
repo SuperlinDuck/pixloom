@@ -75,6 +75,27 @@ async function main() {
     await runtime.writeFile(
       project,
       'src/App.jsx',
+      `import React from 'react'; export default function App(){const loggedIn=false;if(!loggedIn)return <main>登录</main>;return <main>{isMemoModalOpen}</main>}`,
+    )
+    const undefinedState = await runtime.execute(project, 'build')
+    assert.notEqual(undefinedState.exitCode, 0)
+    assert.ok(undefinedState.output.includes('isMemoModalOpen'))
+    assert.ok(undefinedState.output.includes('src/App.jsx'))
+    await runtime.writeFile(
+      project,
+      'src/App.jsx',
+      `/* global isMemoModalOpen */ import React from 'react'; export default function App(){return <main>{isMemoModalOpen}</main>}`,
+    )
+    assert.notEqual((await runtime.execute(project, 'build')).exitCode, 0)
+    await runtime.writeFile(
+      project,
+      'src/App.jsx',
+      `import React from 'react';export default function App(){const {name='有效'}={};const values=[name].map((value,index)=>value+index);const info=()=>new Blob([window.location.href,document.title,navigator.userAgent]);return <main onClick={info}>{values.join(',')}</main>}`,
+    )
+    assert.equal((await runtime.execute(project, 'build')).exitCode, 0)
+    await runtime.writeFile(
+      project,
+      'src/App.jsx',
       'export default function App( {',
     )
     assert.notEqual((await runtime.execute(project, 'build')).exitCode, 0)
@@ -88,7 +109,9 @@ async function main() {
     )
     assert.equal(await runtime.readFile(project, 'src/App.jsx'), changed)
     assert.equal((await runtime.execute(project, 'build')).exitCode, 0)
-    console.log('PASS 创建、读写、构建、预览资源、构建失败、停止、源码恢复。')
+    console.log(
+      'PASS 创建、读写、构建、预览资源、未定义变量检查、构建失败、停止、源码恢复。',
+    )
   } finally {
     await runtime.remove(project)
     assert.equal(await runtime.state(project), 'absent')

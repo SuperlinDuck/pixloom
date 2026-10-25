@@ -1,4 +1,6 @@
 import { reserveModelCall, settleModelCall, releaseModelCall } from './billing'
+import { contextInputBudget } from './compaction'
+import { modelRequests } from './request-limiter'
 import type { Provider, Usage } from '../types'
 import {
   agentInstructions,
@@ -15,6 +17,7 @@ export type ModelTurn = {
 }
 export type ModelSession = {
   next(inputs: AgentInput[], maxOutputTokens: number): Promise<ModelTurn>
+  needsCompaction?(inputs: AgentInput[], maxOutputTokens: number): boolean
 }
 export type ModelProvider = {
   createSession(request: {
@@ -116,22 +119,34 @@ async function post(
   signal: AbortSignal,
   retries = MAX_RETRIES,
 ) {
+  return modelRequests.run(url, signal, () =>
+    postResponse(url, headers, body, signal, retries),
+  )
+}
+
+async function postResponse(
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+  signal: AbortSignal,
+  retries = MAX_RETRIES,
+) {
   // Retry the exact serialized request without replaying inputs into session history.
   const payload = JSON.stringify(body)
+  const requestBody = body as {
+    max_output_tokens?: number
+    generationConfig?: { maxOutputTokens?: number }
+  }
+  const requestedOutput =
+    requestBody.max_output_tokens ||
+    requestBody.generationConfig?.maxOutputTokens ||
+    24000
   let response: Response
   let reservation: ReturnType<typeof reserveModelCall>
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted()
-    const requestBody = body as {
-      max_output_tokens?: number
-      generationConfig?: { maxOutputTokens?: number }
-    }
-    reservation = reserveModelCall(
-      payload,
-      requestBody.max_output_tokens ||
-        requestBody.generationConfig?.maxOutputTokens ||
-        24000,
-    )
+    await modelRequests.wait(url, signal)
+    reservation = reserveModelCall(payload, requestedOutput)
     try {
       response = await fetch(url, {
         method: 'POST',
@@ -150,6 +165,8 @@ async function post(
     if ([400, 401, 403, 404, 413, 422, 429].includes(response.status))
       releaseModelCall(reservation)
     const failure = await requestError(response)
+    if (response.status === 429 && failure.retryable)
+      modelRequests.defer(new URL(url).origin, retryDelay(response, attempt))
     if (!failure.retryable || attempt === retries) throw failure.error
     await waitForRetry(retryDelay(response, attempt), signal)
   }
@@ -217,57 +234,70 @@ export const geminiProvider: ModelProvider = {
     retries,
   }) {
     const contents: unknown[] = [{ role: 'user', parts: [{ text: prompt }] }]
+    const inputContent = (inputs: AgentInput[]) => ({
+      role: 'user',
+      parts: inputs.map((input) =>
+        input.type === 'user'
+          ? { text: input.text }
+          : {
+              functionResponse: {
+                ...(input.id ? { id: input.id } : {}),
+                name: input.name,
+                response: { result: input.output },
+              },
+            },
+      ),
+    })
+    const requestBody = (history: unknown[], maxOutputTokens: number) => ({
+      systemInstruction: { parts: [{ text: instructions }] },
+      contents: history,
+      tools: tools
+        ? [
+            {
+              functionDeclarations: agentTools.map(
+                ({ name, description, parameters }) => ({
+                  name,
+                  description,
+                  parametersJsonSchema: parameters,
+                }),
+              ),
+            },
+          ]
+        : undefined,
+      generationConfig: {
+        maxOutputTokens,
+        ...(/^gemini-3(?:[.-]|$)/.test(model)
+          ? { thinkingConfig: { thinkingLevel: 'low' } }
+          : {}),
+      },
+    })
     return {
+      needsCompaction(inputs, maxOutputTokens) {
+        const history = inputs.length
+          ? [...contents, inputContent(inputs)]
+          : contents
+        return (
+          Buffer.byteLength(
+            JSON.stringify(requestBody(history, maxOutputTokens)),
+          ) > contextInputBudget('gemini', model, maxOutputTokens)
+        )
+      },
       async next(inputs, maxOutputTokens) {
         const key = process.env.GEMINI_API_KEY || process.env.VERTEX_AI_API_KEY
         if (!key)
           throw new Error(
             '请在 .env.local 配置 GEMINI_API_KEY 或 VERTEX_AI_API_KEY',
           )
-        if (inputs.length)
-          contents.push({
-            role: 'user',
-            parts: inputs.map((input) =>
-              input.type === 'user'
-                ? { text: input.text }
-                : {
-                    functionResponse: {
-                      ...(input.id ? { id: input.id } : {}),
-                      name: input.name,
-                      response: { result: input.output },
-                    },
-                  },
-            ),
-          })
+        if (this.needsCompaction?.(inputs, maxOutputTokens))
+          throw new Error('请求超过模型的安全上下文预算，需要先压缩历史')
+        if (inputs.length) contents.push(inputContent(inputs))
         const base = process.env.GEMINI_API_KEY
           ? 'https://generativelanguage.googleapis.com/v1beta/models'
           : 'https://aiplatform.googleapis.com/v1/publishers/google/models'
         const { data, bytes } = await post(
           `${base}/${encodeURIComponent(model)}:generateContent`,
           { 'x-goog-api-key': key },
-          {
-            systemInstruction: { parts: [{ text: instructions }] },
-            contents,
-            tools: tools
-              ? [
-                  {
-                    functionDeclarations: agentTools.map(
-                      ({ name, description, parameters }) => ({
-                        name,
-                        description,
-                        parametersJsonSchema: parameters,
-                      }),
-                    ),
-                  },
-                ]
-              : undefined,
-            generationConfig: {
-              maxOutputTokens,
-              ...(/^gemini-3(?:[.-]|$)/.test(model)
-                ? { thinkingConfig: { thinkingLevel: 'low' } }
-                : {}),
-            },
-          },
+          requestBody(contents, maxOutputTokens),
           signal,
           retries,
         )
@@ -328,44 +358,56 @@ export const openaiProvider: ModelProvider = {
     retries,
   }) {
     const history: unknown[] = [{ role: 'user', content: prompt }]
+    const inputItems = (inputs: AgentInput[]) =>
+      inputs.map((input) =>
+        input.type === 'user'
+          ? { role: 'user', content: input.text }
+          : {
+              type: 'function_call_output',
+              call_id: input.id,
+              output: input.output,
+            },
+      )
+    const requestBody = (input: unknown[], maxOutputTokens: number) => ({
+      model,
+      instructions,
+      input,
+      store: false,
+      include: ['reasoning.encrypted_content'],
+      max_output_tokens: maxOutputTokens,
+      tools: tools
+        ? agentTools.map(({ name, description, parameters }) => ({
+            type: 'function',
+            name,
+            description,
+            parameters,
+            strict: true,
+          }))
+        : undefined,
+    })
     return {
+      needsCompaction(inputs, maxOutputTokens) {
+        return (
+          Buffer.byteLength(
+            JSON.stringify(
+              requestBody([...history, ...inputItems(inputs)], maxOutputTokens),
+            ),
+          ) > contextInputBudget('openai', model, maxOutputTokens)
+        )
+      },
       async next(inputs, maxOutputTokens) {
         const key = process.env.OPENAI_API_KEY
         if (!key) throw new Error('请在 .env.local 配置 OPENAI_API_KEY')
-        history.push(
-          ...inputs.map((input) =>
-            input.type === 'user'
-              ? { role: 'user', content: input.text }
-              : {
-                  type: 'function_call_output',
-                  call_id: input.id,
-                  output: input.output,
-                },
-          ),
-        )
+        if (this.needsCompaction?.(inputs, maxOutputTokens))
+          throw new Error('请求超过模型的安全上下文预算，需要先压缩历史')
+        history.push(...inputItems(inputs))
         const base = (
           process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
         ).replace(/\/$/, '')
         const { data, bytes } = await post(
           `${base}/responses`,
           { Authorization: `Bearer ${key}` },
-          {
-            model,
-            instructions,
-            input: history,
-            store: false,
-            include: ['reasoning.encrypted_content'],
-            max_output_tokens: maxOutputTokens,
-            tools: tools
-              ? agentTools.map(({ name, description, parameters }) => ({
-                  type: 'function',
-                  name,
-                  description,
-                  parameters,
-                  strict: true,
-                }))
-              : undefined,
-          },
+          requestBody(history, maxOutputTokens),
           signal,
           retries,
         )

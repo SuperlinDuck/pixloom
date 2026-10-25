@@ -36,10 +36,12 @@ export type AgentState = {
   toolCalls: number
   buildFailures: number
   validationFailures?: number
+  validationDurationMs?: number
   responseBytes: number
   reservedOutputTokens: number
   usage: Usage
   startedAt: number | null
+  contextSummary?: string
 }
 export type TaskKind =
   | 'agent'
@@ -79,7 +81,14 @@ export type Task = {
   createdAt: string
   updatedAt: string
 }
-export type TaskSummary = Omit<Task, 'candidateFiles'>
+export type TaskSummary = Omit<Task, 'candidateFiles'> & {
+  queue?: { ahead: number; waitingForUser: boolean }
+  candidatePreview?: {
+    artifactId: string
+    sourceHash: string
+    usesCloud: boolean
+  }
+}
 export type Version = {
   id: string
   projectId: string

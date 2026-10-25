@@ -4,7 +4,6 @@ import { loadEnvConfig } from '@next/env'
 import { statfsSync } from 'node:fs'
 import { db, workerOnline } from '../src/lib/store'
 import { DockerRuntime } from '../src/lib/runtime/docker'
-import { dailyUsage } from '../src/lib/tenancy'
 import { assertProductionConfig } from '../src/lib/platform-config'
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production')
 async function main() {
@@ -82,12 +81,6 @@ async function main() {
     name: 'queue',
     ok: !queue.oldest || Date.now() - Date.parse(queue.oldest) < 15 * 60000,
     detail: queue,
-  })
-  const daily = dailyUsage()
-  checks.push({
-    name: 'ai-budget',
-    ok: daily.used < daily.limit * 0.9,
-    detail: daily,
   })
   const pending = db()
     .prepare(

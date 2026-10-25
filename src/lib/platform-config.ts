@@ -41,21 +41,24 @@ export function assertProductionConfig() {
       throw new Error(`生产环境 ${name} 必须为绝对路径`)
   modelWeights()
   for (const name of [
-    'PIXLOOM_MAX_PROJECTS',
     'PIXLOOM_MAX_PUBLISHED_PER_USER',
-    'PIXLOOM_TASK_INPUT_TOKENS',
     'PIXLOOM_TASKS_PER_HOUR',
     'PIXLOOM_USER_STORAGE_BYTES',
     'PIXLOOM_TOTAL_STORAGE_BYTES',
     'PIXLOOM_MIN_FREE_DISK_BYTES',
   ])
     if (process.env[name]) limit(name, 1)
-  limit('PIXLOOM_DAILY_CREDITS', 20_000_000)
-  limit('PIXLOOM_MAX_PROJECTS_PER_USER', 10)
   limit('PIXLOOM_MAX_ACTIVE_TASKS_PER_USER', 2)
   limit('PIXLOOM_MAX_QUEUED_TASKS', 30)
   limit('PIXLOOM_RUNTIME_IDLE_SECONDS', 300, 0)
   limit('PIXLOOM_MAX_RUNTIME_CONTAINERS', 3)
+  for (const [name, fallback] of [
+    ['PIXLOOM_WORKER_CONCURRENCY', 3],
+    ['PIXLOOM_BUILD_CONCURRENCY', 1],
+    ['PIXLOOM_BROWSER_CONCURRENCY', 1],
+    ['PIXLOOM_MODEL_CONCURRENCY', 3],
+  ] as const)
+    limit(name, fallback, 1, 32)
 }
 
 export function modelWeights(): Record<
