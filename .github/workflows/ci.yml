@@ -21,6 +21,27 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm format:check
       - run: pnpm exec playwright install --with-deps chromium
+      - name: Prepare and verify Chromium sandbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] &&
+             [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == 1 ]]; then
+            sudo tee /etc/apparmor.d/pixloom-playwright > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile pixloom-playwright-headless ${HOME}/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+            userns,
+          }
+          EOF
+            sudo apparmor_parser -r /etc/apparmor.d/pixloom-playwright
+          fi
+          node --input-type=module <<'EOF'
+          import { chromium } from 'playwright'
+          const browser = await chromium.launch({ chromiumSandbox: true })
+          await browser.close()
+          EOF
       - run: pnpm build
       - run: pnpm invite:verify
       - run: sudo apt-get update && sudo apt-get install -y caddy

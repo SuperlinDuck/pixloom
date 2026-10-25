@@ -10,6 +10,8 @@
 
 `.github/workflows/ci.yml` 是 PR 和部署共用的可复用工作流，执行测试、类型/格式检查、生产构建、Chromium 邀请流程及 Docker 运行环境验证。`.github/workflows/deploy.yml` 仅在 main push 或手动 main 运行；部署 job 依赖整个 checks job 成功。
 
+CI 安装 Chromium 后，如果 runner 启用了 AppArmor 的非特权 user namespace 限制，会为 runner 缓存中的 Playwright 无头 Chromium 加载专用路径规则，并在构建前以 `chromiumSandbox: true` 实际启动浏览器验证。该规则只配置当前 runner；VPS 的 AppArmor 规则需要在 VPS 单独配置。
+
 部署包来自经过检查的 `github.sha`，通过 `git archive` 生成，只包含跟踪的源码。SSH 严格核对 known_hosts，传输 SHA-256 摘要，VPS 验证摘要后拒绝路径穿越、链接、特殊文件、运行数据和密钥文件。VPS 无需再登录 GitHub，也不会执行 git pull 到正在运行的目录。
 
 复用已有 Repository Secrets：
