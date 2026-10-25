@@ -1,0 +1,15 @@
+[Unit]
+Description=Pixloom operational checks
+After=pixloom-web.service pixloom-worker.service pixloom-gateway.service
+
+[Service]
+Type=oneshot
+User=pixloom
+Group=pixloom
+SupplementaryGroups=docker
+WorkingDirectory=/srv/pixloom/app
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=/etc/pixloom/pixloom.env
+ExecStart=/usr/bin/env pnpm ops:check
+UMask=0077

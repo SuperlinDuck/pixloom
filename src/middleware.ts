@@ -1,8 +1,29 @@
-import createMiddleware from "next-intl/middleware"
-import { routing } from "./i18n/routing"
+import { NextResponse, type NextRequest } from 'next/server'
+import { workspaceRequestOrigin } from './lib/workspace-origin'
 
-export default createMiddleware(routing)
-
-export const config = {
-  matcher: ["/((?!api|_next|_vercel|.*\\..*).*)"],
+// Allow loopback and the explicitly configured workspace/proxy origin.
+export function middleware(request: NextRequest) {
+  const previewRead =
+    request.method === 'GET' &&
+    /^\/api\/previews\/[a-f0-9-]{36}(?:\/|$)/.test(request.nextUrl.pathname)
+  const googleCallback =
+    request.method === 'GET' &&
+    ['/api/auth/callback/google', '/api/cloud/supabase/callback'].includes(
+      request.nextUrl.pathname,
+    )
+  if (
+    !workspaceRequestOrigin(request) ||
+    (request.headers.get('sec-fetch-site') === 'cross-site' &&
+      !previewRead &&
+      !googleCallback)
+  ) {
+    return NextResponse.json(
+      { error: '不允许从此地址或来源访问 Pixloom' },
+      { status: 403 },
+    )
+  }
+  const response = NextResponse.next()
+  response.headers.set('Cache-Control', 'no-store')
+  return response
 }
+export const config = { matcher: ['/api/:path*'] }

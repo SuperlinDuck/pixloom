@@ -1,0 +1,64 @@
+name: Pixloom checks
+on:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Prepare and verify Chromium sandbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] &&
+             [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == 1 ]]; then
+            sudo tee /etc/apparmor.d/pixloom-playwright > /dev/null <<EOF
+          abi <abi/4.0>,
+          include <tunables/global>
+
+          profile pixloom-playwright-headless ${HOME}/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+            userns,
+          }
+          EOF
+            sudo apparmor_parser -r /etc/apparmor.d/pixloom-playwright
+          fi
+          node --input-type=module <<'EOF'
+          import { chromium } from 'playwright'
+          const browser = await chromium.launch({ chromiumSandbox: true })
+          await browser.close()
+          EOF
+      - run: pnpm build
+      - run: pnpm invite:verify
+      - run: sudo apt-get update && sudo apt-get install -y caddy
+      - run: sudo systemctl stop caddy
+      - run: pnpm deploy:verify
+  docker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - run: pnpm install --frozen-lockfile
+      - run: docker info
+      - run: pnpm sandbox:prepare
+      - run: pnpm sandbox:verify
