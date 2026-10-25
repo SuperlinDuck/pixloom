@@ -14,6 +14,7 @@ import {
   acquireWorker,
   heartbeat,
   createProject,
+  getProject,
   enqueueTask,
   claimTask,
   completeBuild,
@@ -36,13 +37,17 @@ async function main() {
     PIXLOOM_ADMIN_EMAILS: 'admin@example.com',
     PIXLOOM_GOOGLE_CLIENT_ID: 'fixture-client',
     PIXLOOM_GOOGLE_CLIENT_SECRET: 'fixture-secret',
-    GEMINI_API_KEY: '',
+    // Only enqueue the conversation task; no model worker runs in this fixture.
+    GEMINI_API_KEY: 'fixture-key',
     VERTEX_AI_API_KEY: '',
     OPENAI_API_KEY: '',
     PIXLOOM_PUBLISH_ENABLED: '0',
   })
   const probe = createServer()
-  await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>((resolve, reject) => {
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', resolve)
+  })
   const port = (probe.address() as { port: number }).port
   await new Promise<void>((resolve) => probe.close(() => resolve()))
   const origin = `http://127.0.0.1:${port}`
@@ -242,9 +247,23 @@ async function main() {
     const welcomeResponse = await welcome.goto(origin)
     assert.equal(welcomeResponse!.headers()['x-frame-options'], 'DENY')
     await welcome.locator('#invitation-code').waitFor()
+    const prompt = '创建一个支持分类和完成标记的待办应用'
+    await welcome
+      .getByRole('textbox', { name: '应用需求', exact: true })
+      .fill(prompt)
+    const startConversation = welcome.getByRole('button', {
+      name: '开始对话',
+      exact: true,
+    })
+    assert.equal(await startConversation.isDisabled(), true)
     assert.equal(
-      await welcome.getByRole('button', { name: '创建空白项目' }).isDisabled(),
-      true,
+      (
+        await entrant.request.post(`${origin}/api/projects`, {
+          data: { prompt, provider: 'gemini' },
+          headers: { origin },
+        })
+      ).status(),
+      403,
     )
     await welcome.locator('#invitation-code').fill(invitation.code)
     await welcome
@@ -253,18 +272,37 @@ async function main() {
     await welcome.waitForFunction(
       () => !document.querySelector('#invitation-code'),
     )
-    assert.equal(
-      await welcome.getByRole('button', { name: '创建空白项目' }).isEnabled(),
-      true,
+    await welcome
+      .getByRole('textbox', { name: '应用需求', exact: true })
+      .fill(prompt)
+    await welcome.waitForFunction(
+      () =>
+        !!document.querySelector(
+          '.landing-composer button[type="submit"]:enabled',
+        ),
     )
+    assert.equal(await startConversation.isEnabled(), true)
+    const accountMenu = welcome.getByRole('button', {
+      name: '账号菜单',
+      exact: true,
+    })
+    await accountMenu.click()
     assert.equal(
-      await welcome.locator('.account-points-balance strong').innerText(),
+      await welcome
+        .getByRole('dialog', { name: '账号菜单', exact: true })
+        .locator('.account-points-balance strong')
+        .innerText(),
       '2,000',
     )
-    await welcome
-      .getByRole('button', { name: '创建空白项目', exact: true })
-      .click()
-    await welcome.waitForURL(/\/projects\/[a-f0-9-]{36}\/code$/)
+    await accountMenu.click()
+    const createdResponse = welcome.waitForResponse(
+      (response) =>
+        response.url() === `${origin}/api/projects` &&
+        response.request().method() === 'POST',
+    )
+    await startConversation.click()
+    assert.equal((await createdResponse).status(), 201)
+    await welcome.waitForURL(/\/projects\/[a-f0-9-]{36}$/)
     const createdId = new URL(welcome.url()).pathname.split('/')[2]
     assert.equal(
       (
@@ -274,6 +312,11 @@ async function main() {
       ).ownerId,
       pending.id,
     )
+    const [createdTask] = getProject(createdId).tasks
+    assert.equal(createdTask.kind, 'agent')
+    assert.equal(createdTask.status, 'queued')
+    assert.equal(createdTask.agent?.prompt, prompt)
+    assert.equal(createdTask.agent?.provider, 'gemini')
     db().prepare('UPDATE users SET creditLimit=0 WHERE id=?').run(alice.id)
     assert.equal((await owner.request.get(source!)).status(), 200)
     await page.evaluate(
@@ -432,7 +475,7 @@ async function main() {
     )
     assert.deepEqual(pageErrors, [])
     console.log(
-      'PASS 真实生产 Web + Chromium：项目/视图/历史版本路由、刷新与前进后退、未保存编辑保护、旧 Cloud 链接兼容、邀请码激活、两用户隔离、私有预览交互、额度耗尽后手工构建、退出撤销资源凭证。',
+      'PASS 真实生产 Web + Chromium：项目/视图/历史版本路由、刷新与前进后退、未保存编辑保护、旧 Cloud 链接兼容、邀请码激活与首次对话创建、两用户隔离、私有预览交互、额度耗尽后手工构建、退出撤销资源凭证。',
     )
   } catch (error) {
     const page = browser?.contexts()[0]?.pages()[0]
