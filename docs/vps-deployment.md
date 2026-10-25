@@ -6,16 +6,18 @@
 
 ## 1. 安装与目录
 
-安装 Node.js 24、package.json 声明的 pnpm、Docker Engine 和 Caddy。以下示例约定代码在 `/srv/pixloom/app`，系统用户为 `pixloom`，其 HOME 为 `/srv/pixloom`。systemd 的 PATH 使用 `/usr/local/bin:/usr/bin:/bin`，需确认 node、pnpm 位于其中。按 VPS 实际内存调整服务资源限制，给系统、Docker 容器和 Caddy 留出空间。
+安装 Node.js 24、package.json 声明的 pnpm、Docker Engine 和 Caddy。复用现有 `deploy` 作为 SSH 部署账号，另建 `pixloom` 运行服务，无需为 pixloom 配置 SSH 登录或免密 sudo。以下示例约定代码在 `/srv/pixloom/app`，服务用户 pixloom 的 HOME 为 `/srv/pixloom`。systemd 的 PATH 使用 `/usr/local/bin:/usr/bin:/bin`，需确认 node、pnpm 位于其中。按 VPS 实际内存调整服务资源限制，给系统、Docker 容器和 Caddy 留出空间。首次安装使用 root 或已有管理权限的运维账号。
 
 ```sh
 sudo useradd --system --create-home --home-dir /srv/pixloom --shell /bin/bash pixloom
 sudo usermod -aG docker pixloom
+# deploy 需要穿过父目录才能访问自己的 incoming；私有子目录仍保持 0700。
+sudo chmod 755 /srv/pixloom
 sudo install -d -o pixloom -g pixloom -m 700 /srv/pixloom/data /srv/pixloom/published
 sudo install -d -o root -g pixloom -m 750 /etc/pixloom
 ```
 
-将代码放入 app，授予部署用户更新代码和构建目录的权限；服务使用独立系统用户。当前环境查询接口也需要 Docker，所以 Web 和 Worker 都有 Docker 组权限。Docker 控制权属于受信任控制面，不能把 Socket 挂入生成应用或暴露到公网。
+自动部署时，deploy 只写入 incoming，由 root 控制器创建 release、切换 app 链接，并以 pixloom 安装依赖和构建；上传目录和指定命令的 sudo 授权按 [自动部署文档](continuous-deployment.md) 配置。手动部署时，以 pixloom 在代码目录安装依赖和构建。不要把 systemd 的 User/Group 替换成 deploy，也不要递归改变整棵 `/srv/pixloom` 的所有权。当前环境查询接口也需要 Docker，所以 Web 和 Worker 都有 Docker 组权限。Docker 控制权属于受信任控制面，不能把 Socket 挂入生成应用或暴露到公网。
 
 ## 2. 域名与凭证
 

@@ -12,14 +12,24 @@
 
 复用已有 Repository Secrets：
 
-| 名称            | 用途                      |
-| --------------- | ------------------------- |
-| VPS_HOST        | VPS 地址                  |
-| VPS_USER        | SSH 部署用户              |
-| VPS_SSH_KEY     | 部署 SSH 私钥             |
-| VPS_KNOWN_HOSTS | 已核验的 SSH 主机公钥记录 |
+| 名称            | 用途                       |
+| --------------- | -------------------------- |
+| VPS_HOST        | VPS 地址                   |
+| VPS_USER        | 复用现有 SSH 用户 `deploy` |
+| VPS_SSH_KEY     | 部署 SSH 私钥              |
+| VPS_KNOWN_HOSTS | 已核验的 SSH 主机公钥记录  |
 
 可选 Repository Variable `VPS_SSH_PORT`，默认 22。非标准端口的 known_hosts 应含对应 `[host]:port` 条目。Google、模型、Cloud 和数据库密钥只存 VPS 的 `/etc/pixloom/pixloom.env`，不传给 Actions。
+
+本指南复用现有 `deploy` 账号、SSH 密钥和 `VPS_USER=deploy`，另建 `pixloom` 服务账号：
+
+| 账号      | 用途与权限                                                                                                    |
+| --------- | ------------------------------------------------------------------------------------------------------------- |
+| `deploy`  | Actions 通过 SSH 登录，写入 `/srv/pixloom/incoming`，通过指定 sudo 命令调用部署控制器。                       |
+| `pixloom` | 安装依赖、构建应用，运行 Web、Worker、Gateway，持有应用数据和 Docker 访问权限。无需配置 SSH 登录或免密 sudo。 |
+| `root`    | 持有部署控制器、服务配置和备份，通过控制器完成服务切换及回滚。                                                |
+
+不要把服务中的 `User=pixloom` 改成 `deploy`，也不要递归把 `/srv/pixloom` 全部交给 `deploy`。账号分开可避免应用进程直接使用部署账号的 SSH 文件和 sudo 权限；服务账号仍具有 Docker 控制权，需要作为高权限账号保护。首次安装需要 root 或已有管理权限的运维账号，下文给 `deploy` 的单条 sudo 授权只用于后续自动发布。
 
 ## 一次性从旧 PM2 部署迁移
 
@@ -28,16 +38,17 @@
 旧工作流的目录为 `/var/www/pixloom`，通过 PM2 集群运行一个 Next 服务；新工作流使用单机 SQLite、一个 Worker、一个 Web、一个 Gateway 和 systemd。不能直接套用旧的 PM2 reload。
 
 1. 备份旧目录中的配置、数据库和上传文件，保留旧代码及 PM2 配置。新版不自动导入已经移除的旧 HTML 项目数据。不要把旧目录的数据与新版空库混合复制。
-2. 按 [VPS 部署](vps-deployment.md) 安装 Node.js 24、pnpm、Docker Engine、Caddy、Python 3、curl 和 flock（util-linux），创建 pixloom 用户和配置密钥。自动部署仅支持本机 Docker Engine 默认 context，固定 Web 3000、Gateway 4180、数据 `/srv/pixloom/data`、发布 `/srv/pixloom/published`；HTTPS 使用标准 443。
+2. 按 [VPS 部署](vps-deployment.md) 安装 Node.js 24、pnpm、Docker Engine、Caddy、Python 3、curl 和 flock（util-linux），保留现有 deploy 用户，创建独立 pixloom 服务用户并配置密钥。自动部署仅支持本机 Docker Engine 默认 context，固定 Web 3000、Gateway 4180、数据 `/srv/pixloom/data`、发布 `/srv/pixloom/published`；HTTPS 使用标准 443。
 3. 把包含本套部署脚本的代码放在 pixloom 用户可读写的独立准备目录，例如 `/srv/pixloom/bootstrap`。首次合并前应使用 `codex/atoms-platform` 分支或对应提交，尚未更新的 main 不包含这些脚本。准备目录及其依赖安装位置需归 pixloom 所有，父目录也需允许该用户访问。可以在旧 Git checkout 旁创建独立 worktree，保持线上 main checkout 不变；也可以上传源码包。以 pixloom 用户安装依赖，使用有权限的运维用户安装 Chromium 系统依赖 `pnpm exec playwright install-deps chromium`。浏览器文件由每次部署以 pixloom 用户下载。
 4. 在该准备目录安装控制器、服务配置和根目录：
 
 ```sh
+# 允许 deploy 穿过父目录；数据、上传、备份子目录仍使用各自的权限。
+sudo chmod 755 /srv/pixloom
 sudo install -d -m 755 /srv/pixloom/releases /usr/local/libexec/pixloom /var/lib/pixloom
 sudo install -d -m 700 /srv/pixloom/backups
 sudo install -d -o pixloom -g pixloom -m 700 /srv/pixloom/data /srv/pixloom/published
-# incoming 应归现有 VPS_USER 所有，以下示例使用 root；非 root 时改成实际 SSH 用户。
-sudo install -d -o root -g root -m 700 /srv/pixloom/incoming
+sudo install -d -o deploy -g "$(id -gn deploy)" -m 700 /srv/pixloom/incoming
 sudo install -d -o root -g pixloom -m 750 /etc/pixloom
 sudo install -o root -g root -m 755 deploy/deploy.sh /usr/local/sbin/pixloom-deploy
 sudo install -o root -g root -m 644 deploy/deploy.mjs deploy/retire-worker.mjs deploy/archive.py /usr/local/libexec/pixloom/
@@ -47,6 +58,26 @@ sudo systemctl daemon-reload
 ```
 
 控制器、retire-worker.mjs 和 archive.py 必须 root 所有，不能由服务用户改写。以后改动这些控制器文件时，需在部署前重新执行对应 install 命令；普通应用代码、systemd 单元和定时备份脚本由控制器随版本更新。
+
+继续由管理员为 deploy 配置指定命令的免密 sudo：
+
+```sh
+sudo visudo -f /etc/sudoers.d/pixloom-deploy
+```
+
+写入以下规则并保存；sudoers 文件由 root 持有，权限为 0440：
+
+```sudoers
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/pixloom-deploy
+```
+
+```sh
+sudo chown root:root /etc/sudoers.d/pixloom-deploy
+sudo chmod 440 /etc/sudoers.d/pixloom-deploy
+sudo visudo -c
+```
+
+使用 deploy 登录后执行 `sudo -n -l /usr/local/sbin/pixloom-deploy`，确认该命令被允许。该授权允许发布可执行代码，应按服务器管理员权限保护 deploy 的 SSH 密钥；无需为自动发布新增 `NOPASSWD: ALL` 或把 deploy 加入 Docker 组。若已有其他 sudo 授权，应单独审查；新增此规则不会收回旧权限。若实际 SSH 用户名不同，同时替换 `VPS_USER`、incoming 所有者和 sudoers 中的 deploy。
 
 5. 配置 `/etc/pixloom/pixloom.env`（root:pixloom 0640）。使用原来的模型/Cloud 加密密钥保护已有资源；管理员邮箱、OAuth 和 HTTPS 来源必须真实配置。不要把密钥写入 Git 或源码包。
 6. 在准备目录生成含维护页的新 Caddy 配置，并与现有站点合并，校验后重载。下面通过 systemd 注入与正式服务相同的配置，不使用 shell source 解释密钥文件：
@@ -68,8 +99,7 @@ caddy validate --config /tmp/pixloom-Caddyfile --adapter caddyfile
 sudo install -m 644 /dev/null /var/lib/pixloom/maintenance
 ```
 
-8. 若 VPS_USER 非 root，只为可信部署用户配置无密码执行 `/usr/local/sbin/pixloom-deploy` 的 sudo 权限，并把 incoming 目录交给该用户。该权限允许发布可执行代码，应按服务器管理员权限保护。root SSH 用户不使用 sudo。
-9. 首次准备完成并确认维护窗口后，再经人工确认把包含新工作流的分支合入 main；合并会自动启动新 Deploy Pixloom。**新工作流进入 main 之前，不要手动运行 main 上的同名工作流，它仍是旧 PM2 部署。** 只有新工作流已经在 main 上时，后续才能通过手动运行重试。首次成功后，三个服务和备份/监测 timer 自动开机启用。当前功能分支的普通 push 不会触发部署。
+8. 首次准备完成并确认维护窗口后，再经人工确认把包含新工作流的分支合入 main；合并会自动启动新 Deploy Pixloom。**新工作流进入 main 之前，不要手动运行 main 上的同名工作流，它仍是旧 PM2 部署。** 只有新工作流已经在 main 上时，后续才能通过手动运行重试。首次成功后，三个服务和备份/监测 timer 自动开机启用。当前功能分支的普通 push 不会触发部署。
 
 如果已经按旧版指南把新版应用作为普通目录放在 `/srv/pixloom/app`，先在维护窗口停止三个服务，将整个目录移到 `/srv/pixloom/releases/bootstrap-日期`，再建立 app 符号链接。确认没有运行任务且旧版可正常启动后再运行自动部署。控制器会拒绝直接覆盖普通 checkout。
 
