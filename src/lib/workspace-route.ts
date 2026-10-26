@@ -1,6 +1,7 @@
 export const workspaceTabs = [
   'preview',
   'code',
+  'history',
   'diff',
   'runtime',
   'cloud',

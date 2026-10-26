@@ -10,7 +10,6 @@ import {
 } from 'react'
 import {
   Box,
-  Cloud,
   Hammer,
   Check,
   Code2,
@@ -64,7 +63,6 @@ import { useWorkspaceNavigation } from './use-workspace-navigation'
 import {
   parseWorkspacePath,
   workspaceHome,
-  workspaceTabs,
   type WorkspaceTab,
 } from '@/lib/workspace-route'
 import type { DockerHealth } from '@/lib/runtime/types'
@@ -207,8 +205,13 @@ function WorkspaceSession({
       !!(await ask('当前有未保存的编辑，离开将丢弃这些编辑。是否继续？')),
   )
   const projectId = canAccess ? route.projectId : null
-  const tab = route.tab
   const selected = canAccess ? route.versionId : null
+  const diffOpen = route.tab === 'diff'
+  const tab = diffOpen
+    ? 'code'
+    : route.tab === 'history' || (selected && route.tab === 'publish')
+      ? 'preview'
+      : route.tab
   const [projects, setProjects] = useState<Project[]>([])
   const [detail, setDetail] = useState<ProjectDetail | null>(null),
     [status, setStatus] = useState<SystemStatus | null>(null)
@@ -218,8 +221,9 @@ function WorkspaceSession({
   const [publication, setPublication] = useState<Publication | null>(null)
   const [prefixEdit, setPrefixEdit] = useState<string | null>(null)
   const [prefixRequestError, setPrefixRequestError] = useState('')
-  const [history, setHistory] = useState(false),
-    [historical, setHistorical] = useState<VersionDetail | null>(null)
+  const [history, setHistory] = useState(false)
+  const historyOpen = history || route.tab === 'history'
+  const [historical, setHistorical] = useState<VersionDetail | null>(null)
   const [current, setCurrent] = useState<VersionDetail | null>(null),
     [parent, setParent] = useState<VersionDetail | null>(null)
   const [compare, setCompare] = useState<'parent' | 'current'>('parent')
@@ -246,6 +250,11 @@ function WorkspaceSession({
   const dirty = !!draft && !equal(files, draft.files)
   function setTab(tab: WorkspaceTab) {
     void navigate({ ...route, tab })
+  }
+  function closeHistory() {
+    setHistory(false)
+    if (route.tab === 'history')
+      void navigate({ ...route, tab: 'preview' }, true)
   }
   function setSelected(versionId: string | null) {
     void navigate({ ...route, versionId })
@@ -390,6 +399,7 @@ function WorkspaceSession({
     setDraft(null)
     setFiles([])
     setHistorical(null)
+    setHistory(false)
     setCurrent(null)
     setOlder([])
     setBackups([])
@@ -585,7 +595,6 @@ function WorkspaceSession({
     if (busy) return
     if (!(await navigate({ ...workspaceHome, projectId: id }))) return
     setMenu(false)
-    setHistory(false)
   }
   async function rename() {
     if (!projectId || !projectName.trim() || busy) return
@@ -711,7 +720,9 @@ function WorkspaceSession({
     if (!historical || !detail || !draft) return
     if (
       !(await ask(
-        `将 v${historical.number} 恢复为一个新版本。当前已保存草稿会备份${dirty ? '；未保存编辑将丢弃' : ''}。后续版本仍保留，是否继续？`,
+        `将使用 v${historical.number} 的代码创建一个新版本，并切换到新版本。现有历史版本仍会保留。`,
+        undefined,
+        { title: '恢复为新版本', confirmLabel: '确认恢复' },
       ))
     )
       return
@@ -934,6 +945,21 @@ function WorkspaceSession({
         </p>
       </div>
     )
+  const exportButton = (
+    <button
+      aria-label="导出"
+      title={
+        shown
+          ? `导出 v${shown.number} 交付包（不含草稿）`
+          : '首次构建成功后可导出'
+      }
+      disabled={busy || !shown}
+      onClick={() => void downloadVersion()}
+    >
+      <Download size={14} />
+      导出
+    </button>
+  )
   const diffs = diffFiles(
     viewingHistory
       ? compare === 'current'
@@ -1213,7 +1239,7 @@ function WorkspaceSession({
                         描述你想创建的应用，或要求修改现有功能。Agent
                         会读取源码、编辑并完成构建后保存新版本。自动测试失败会保留提示，你仍可查看预览。
                       </p>
-                      <small>也可以在源码页手动编辑并构建。</small>
+                      <small>也可以在代码页手动编辑并构建。</small>
                     </div>
                   )}
                 {detail?.tasks
@@ -1349,7 +1375,7 @@ function WorkspaceSession({
                 )}
                 {viewingHistory && (
                   <p className="workspace-hint">
-                    正在查看历史版本，返回草稿后可继续对话。
+                    正在查看历史版本，退出查看后可继续对话。
                   </p>
                 )}
               </div>
@@ -1357,49 +1383,35 @@ function WorkspaceSession({
             <section className="preview-panel">
               <div className="preview-toolbar">
                 <div className="tabs">
-                  {workspaceTabs.map((key, i) => {
-                    if (key === 'runtime' || key === 'cloud') return null
-                    return (
+                  {(
+                    [
+                      { key: 'preview', label: '预览', Icon: Monitor },
+                      { key: 'code', label: '代码', Icon: Code2 },
+                      { key: 'publish', label: '发布', Icon: Rocket },
+                    ] as const
+                  )
+                    .filter(({ key }) => key !== 'publish' || !viewingHistory)
+                    .map(({ key, label, Icon }) => (
                       <button
                         key={key}
                         className={tab === key ? 'active' : ''}
                         onClick={() => setTab(key)}
                       >
-                        {
-                          [
-                            <Monitor size={14} key="p" />,
-                            <Code2 size={14} key="c" />,
-                            <GitCompareArrows size={14} key="d" />,
-                            <Box size={14} key="r" />,
-                            <Cloud size={14} key="cloud" />,
-                            <Rocket size={14} key="s" />,
-                          ][i]
-                        }
-                        {['预览', '源码', '差异', '环境', '云后端', '发布'][i]}
+                        <Icon size={14} />
+                        {label}
                       </button>
-                    )
-                  })}
+                    ))}
                 </div>
                 <div className="preview-actions">
                   <button
-                    className="icon-button"
-                    aria-label={
-                      shown ? `导出 v${shown.number} 交付包` : '导出交付包'
-                    }
-                    title={
-                      shown
-                        ? `导出 v${shown.number} 交付包（不含草稿）`
-                        : '首次构建成功后可导出'
-                    }
-                    disabled={busy || !shown}
-                    onClick={() => void downloadVersion()}
-                  >
-                    <Download size={16} />
-                  </button>
-                  <button
-                    className={`icon-button ${history ? 'pressed' : ''}`}
+                    className={`icon-button ${historyOpen ? 'pressed' : ''}`}
                     aria-label="版本历史"
-                    onClick={() => setHistory(!history)}
+                    title="版本历史"
+                    aria-expanded={historyOpen}
+                    aria-controls="version-history-panel"
+                    onClick={() =>
+                      historyOpen ? closeHistory() : setHistory(true)
+                    }
                   >
                     <History size={16} />
                   </button>
@@ -1411,6 +1423,18 @@ function WorkspaceSession({
                     正在查看历史 {historical ? `v${historical.number}` : '…'} ·
                     只读
                   </span>
+                  {tab === 'code' && (
+                    <>
+                      {exportButton}
+                      <button
+                        aria-haspopup="dialog"
+                        onClick={() => setTab('diff')}
+                      >
+                        <GitCompareArrows size={14} />
+                        查看差异
+                      </button>
+                    </>
+                  )}
                   <button
                     disabled={
                       busy ||
@@ -1419,13 +1443,14 @@ function WorkspaceSession({
                       historical.id === detail?.project.currentVersionId ||
                       !ready
                     }
+                    aria-haspopup="dialog"
                     onClick={() => void restore()}
                   >
                     恢复为新版本
                   </button>
-                  <button onClick={() => setSelected(null)}>返回草稿</button>
+                  <button onClick={() => setSelected(null)}>退出查看</button>
                 </div>
-              ) : tab === 'code' || tab === 'diff' ? (
+              ) : tab === 'code' ? (
                 <div className="draft-toolbar">
                   <span className={`draft-label ${dirty ? 'unsaved' : ''}`}>
                     {dirty
@@ -1436,6 +1461,14 @@ function WorkspaceSession({
                     {currentSummary && ` · 当前 v${currentSummary.number}`}
                   </span>
                   <div>
+                    {exportButton}
+                    <button
+                      aria-haspopup="dialog"
+                      onClick={() => setTab('diff')}
+                    >
+                      <GitCompareArrows size={14} />
+                      查看差异
+                    </button>
                     <button
                       disabled={locked || !dirty}
                       onClick={() => void save()}
@@ -1562,7 +1595,7 @@ function WorkspaceSession({
                         <p>
                           {active
                             ? '首次构建并通过加载检查后，应用会显示在这里。你可以在对话中查看进度。'
-                            : '在左侧描述你的想法，或打开源码开始编辑。'}
+                            : '在左侧描述你的想法，或打开代码开始编辑。'}
                         </p>
                       </div>
                     )}
@@ -1634,7 +1667,7 @@ function WorkspaceSession({
                     </div>
                     <textarea
                       className="source-textarea"
-                      aria-label={`源码 ${file}`}
+                      aria-label={`代码 ${file}`}
                       value={content}
                       spellCheck={false}
                       readOnly={locked || !draft}
@@ -1668,62 +1701,6 @@ function WorkspaceSession({
                       </div>
                     )}
                   </div>
-                </div>
-              )}
-              {tab === 'diff' && (
-                <div className="diff-panel">
-                  <div className="diff-heading">
-                    <strong>
-                      {viewingHistory ? '历史版本差异' : '草稿与当前版本的差异'}
-                    </strong>
-                    {viewingHistory && (
-                      <select
-                        aria-label="对比基线"
-                        value={compare}
-                        onChange={(e) =>
-                          setCompare(e.target.value as 'parent' | 'current')
-                        }
-                      >
-                        <option value="parent">与父版本对比</option>
-                        <option value="current">与当前版本对比</option>
-                      </select>
-                    )}
-                  </div>
-                  {!diffs.length ? (
-                    <p className="workspace-hint">没有文件差异。</p>
-                  ) : (
-                    diffs.map((diff) => (
-                      <article className="file-diff" key={diff.path}>
-                        <h3>
-                          <span>
-                            {diff.type === 'added'
-                              ? '新增'
-                              : diff.type === 'deleted'
-                                ? '删除'
-                                : '修改'}
-                          </span>
-                          {diff.path}
-                        </h3>
-                        <pre>
-                          {diff.lines.map((line, i) => (
-                            <div key={i} className={`diff-line ${line.type}`}>
-                              {line.type === 'added'
-                                ? '+'
-                                : line.type === 'removed'
-                                  ? '-'
-                                  : ' '}{' '}
-                              {line.text}
-                            </div>
-                          ))}
-                        </pre>
-                        {diff.truncated && (
-                          <p>
-                            内容较长，仅展示前 2000 行。请在源码页查看完整文件。
-                          </p>
-                        )}
-                      </article>
-                    ))
-                  )}
                 </div>
               )}
               {tab === 'runtime' && (
@@ -1924,22 +1901,30 @@ function WorkspaceSession({
                   ))}
                 </div>
               )}
-              {history && (
-                <div className="history-panel">
-                  <div className="panel-title">
-                    <span>
-                      <History size={15} />
-                      版本历史
-                    </span>
+              {historyOpen && (
+                <section
+                  id="version-history-panel"
+                  className="history-panel"
+                  aria-labelledby="version-history-title"
+                >
+                  <div className="history-panel-heading">
+                    <h2 id="version-history-title">版本历史</h2>
                     <button
                       className="icon-button"
                       aria-label="关闭版本历史"
-                      onClick={() => setHistory(false)}
+                      onClick={closeHistory}
                     >
                       <X size={16} />
                     </button>
                   </div>
-                  <p>每次成功构建形成快照，恢复也会新增版本。</p>
+                  <p>点击某个版本可预览页面和查看代码</p>
+                  {!detail?.versions.length && (
+                    <p>
+                      {detail
+                        ? '暂无版本，成功构建后会显示在这里。'
+                        : '正在加载版本…'}
+                    </p>
+                  )}
                   {[
                     ...(detail?.versions || []),
                     ...older.filter(
@@ -1950,7 +1935,11 @@ function WorkspaceSession({
                       key={v.id}
                       className={`version-item ${selected === v.id ? 'selected' : ''}`}
                       onClick={async () => {
-                        setSelected(v.id)
+                        await navigate({
+                          ...route,
+                          versionId: v.id,
+                          tab: 'preview',
+                        })
                         setCompare('parent')
                         setHistory(false)
                       }}
@@ -2029,7 +2018,7 @@ function WorkspaceSession({
                       ))}
                     </div>
                   )}
-                </div>
+                </section>
               )}
             </section>
           </div>
@@ -2052,6 +2041,76 @@ function WorkspaceSession({
           </div>
         )}
       </main>
+      {projectId && diffOpen && (
+        <WorkspaceDialogFrame
+          titleId="source-diff-title"
+          className="source-diff-dialog"
+          onClose={() => setTab('code')}
+        >
+          <div className="source-diff-dialog-heading">
+            <h2 id="source-diff-title">查看差异</h2>
+            <button
+              className="icon-button"
+              aria-label="关闭差异"
+              onClick={() => setTab('code')}
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="diff-panel">
+            <div className="diff-heading">
+              <span>
+                {viewingHistory ? '历史版本差异' : '草稿与当前版本的差异'}
+              </span>
+              {viewingHistory && (
+                <select
+                  aria-label="对比基线"
+                  value={compare}
+                  onChange={(e) =>
+                    setCompare(e.target.value as 'parent' | 'current')
+                  }
+                >
+                  <option value="parent">与父版本对比</option>
+                  <option value="current">与当前版本对比</option>
+                </select>
+              )}
+            </div>
+            {!diffs.length ? (
+              <p className="workspace-hint">没有文件差异。</p>
+            ) : (
+              diffs.map((diff) => (
+                <article className="file-diff" key={diff.path}>
+                  <h3>
+                    <span>
+                      {diff.type === 'added'
+                        ? '新增'
+                        : diff.type === 'deleted'
+                          ? '删除'
+                          : '修改'}
+                    </span>
+                    {diff.path}
+                  </h3>
+                  <pre>
+                    {diff.lines.map((line, i) => (
+                      <div key={i} className={`diff-line ${line.type}`}>
+                        {line.type === 'added'
+                          ? '+'
+                          : line.type === 'removed'
+                            ? '-'
+                            : ' '}{' '}
+                        {line.text}
+                      </div>
+                    ))}
+                  </pre>
+                  {diff.truncated && (
+                    <p>内容较长，仅展示前 2000 行。请在代码页查看完整文件。</p>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+        </WorkspaceDialogFrame>
+      )}
       {tab === 'publish' && editingPublicationAddress && (
         <WorkspaceDialogFrame
           titleId="publication-address-title"
