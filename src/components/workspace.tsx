@@ -27,6 +27,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  PowerOff,
   RefreshCw,
   Rocket,
   Save,
@@ -53,7 +54,7 @@ import {
   publicationPrefixError,
 } from '@/lib/publication/prefix'
 import { diffFiles } from '@/lib/diff'
-import { useWorkspaceDialog } from './workspace-dialog'
+import { useWorkspaceDialog, WorkspaceDialogFrame } from './workspace-dialog'
 import { WorkspaceAccount, useWorkspaceAccount } from './workspace-account'
 import { WorkspaceCloud } from './workspace-cloud'
 import { TrustedPreview } from './trusted-preview'
@@ -275,7 +276,7 @@ function WorkspaceSession({
   const prefixError =
     publicationPrefixError(normalizedPrefix) || prefixRequestError
   const prefixChanged = normalizedPrefix !== publication?.prefix
-  const editingPublicationAddress = !publication?.live || prefixEdit !== null
+  const editingPublicationAddress = !!publication?.live && prefixEdit !== null
   const publishedVersionSelected =
     !!shown &&
     publication?.live?.versionId === shown.id &&
@@ -822,6 +823,21 @@ function WorkspaceSession({
     releaseId?: string,
   ) {
     if (!publication || busy || active || !ready) return
+    if (action === 'publish') {
+      if (
+        !shown ||
+        !publication.enabled ||
+        prefixError ||
+        publishedVersionSelected
+      )
+        return
+      if (
+        !(await ask(
+          `确认发布 v${shown.number}？仅发布版本快照，不包含草稿修改。`,
+        ))
+      )
+        return
+    }
     await perform(async () => {
       await publicationRequest({
         action,
@@ -852,22 +868,72 @@ function WorkspaceSession({
     })
   }
   async function updatePublicationAddress() {
-    if (!publication?.live || busy || active || prefixError || !prefixChanged)
+    if (
+      !publication?.live ||
+      !publication.enabled ||
+      busy ||
+      active ||
+      prefixError ||
+      !prefixChanged
+    )
       return
     await perform(async () => {
-      const result = await publicationRequest<Publication>(
-        {
-          prefix: normalizedPrefix,
-          expectedPrefix: publication.prefix,
-          expectedReleaseId: publication.live?.id || null,
-        },
-        'PATCH',
-      )
-      setPublication(result)
-      setPrefixEdit(null)
-      setNotice('发布地址已更新，新地址已生效。')
+      try {
+        const result = await publicationRequest<Publication>(
+          {
+            prefix: normalizedPrefix,
+            expectedPrefix: publication.prefix,
+            expectedReleaseId: publication.live?.id || null,
+          },
+          'PATCH',
+        )
+        setPublication(result)
+        setPrefixEdit(null)
+        setPrefixRequestError('')
+        setNotice('发布地址已更新，新地址已生效。')
+      } catch (e) {
+        setPrefixRequestError(
+          (e as Error).message.replaceAll('域名前缀', '发布地址'),
+        )
+      }
     })
   }
+  const publicationAddressEditor = publication?.prefix &&
+    publication.domainSuffix && (
+      <div className="publication-domain">
+        <label htmlFor="publication-prefix">发布地址</label>
+        <div className="publication-domain-controls">
+          <div className="publication-domain-input">
+            <input
+              id="publication-prefix"
+              value={domainPrefix}
+              onChange={(event) => {
+                setPrefixEdit(event.target.value)
+                setPrefixRequestError('')
+              }}
+              disabled={busy || !!active || !publication.enabled}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              maxLength={63}
+              aria-invalid={!!prefixError}
+              aria-describedby="publication-prefix-hint"
+            />
+            <span>.{publication.domainSuffix}</span>
+          </div>
+        </div>
+        <p
+          id="publication-prefix-hint"
+          aria-live="polite"
+          className={prefixError ? 'publication-domain-error' : ''}
+        >
+          {prefixError ||
+            (publication.live
+              ? '更新地址后原地址将无法访问，应用内容保持不变。'
+              : '修改地址后，点击发布即可生效。支持字母、数字和连字符，地址不可重复。')}
+        </p>
+      </div>
+    )
   const diffs = diffFiles(
     viewingHistory
       ? compare === 'current'
@@ -1734,45 +1800,48 @@ function WorkspaceSession({
               {tab === 'publish' && (
                 <div className="publication-panel">
                   <h2>应用发布</h2>
-                  <p>
-                    选择已保存版本上线。草稿修改和版本恢复不会自动改变线上应用。
-                  </p>
                   {publication?.live ? (
                     <div className="publication-live">
                       <strong>
                         线上版本 v{publication.live.versionNumber}
                       </strong>
-                      <a
-                        href={publication.live.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {publication.live.url}
-                        <ExternalLink size={14} />
-                      </a>
-                      {!editingPublicationAddress && (
-                        <button
-                          disabled={busy || !!active || !publication.enabled}
-                          aria-expanded={false}
-                          aria-controls="publication-address-editor"
-                          onClick={() => setPrefixEdit(publication.prefix)}
+                      <div className="publication-address-row">
+                        <a
+                          href={publication.live.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
                         >
-                          修改地址
-                        </button>
-                      )}
-                      <button
-                        disabled={busy || !!active || !ready}
-                        onClick={async () => {
-                          if (
-                            await ask(
-                              '下线后该项目的所有发布地址将停止提供内容，是否继续？',
-                            )
-                          )
-                            void publish('unpublish')
-                        }}
-                      >
-                        下线应用
-                      </button>
+                          <span>{publication.live.url}</span>
+                          <ExternalLink size={14} />
+                        </a>
+                        <div className="publication-live-actions">
+                          <button
+                            disabled={busy || !!active || !publication.enabled}
+                            aria-haspopup="dialog"
+                            onClick={() => {
+                              setPrefixEdit(publication.prefix)
+                              setPrefixRequestError('')
+                            }}
+                          >
+                            <Pencil size={14} aria-hidden="true" />
+                            修改地址
+                          </button>
+                          <button
+                            disabled={busy || !!active || !ready}
+                            onClick={async () => {
+                              if (
+                                await ask(
+                                  '下线后该项目的所有发布地址将停止提供内容，是否继续？',
+                                )
+                              )
+                                void publish('unpublish')
+                            }}
+                          >
+                            <PowerOff size={14} aria-hidden="true" />
+                            下线应用
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <p className="workspace-hint">尚未发布</p>
@@ -1780,75 +1849,7 @@ function WorkspaceSession({
                   {publication && !publication.enabled && (
                     <p className="workspace-hint">{publication.reason}</p>
                   )}
-                  {publication?.prefix &&
-                    publication.domainSuffix &&
-                    editingPublicationAddress && (
-                      <div
-                        id="publication-address-editor"
-                        className="publication-domain"
-                      >
-                        <label htmlFor="publication-prefix">发布地址</label>
-                        <div className="publication-domain-controls">
-                          <div className="publication-domain-input">
-                            <input
-                              id="publication-prefix"
-                              value={domainPrefix}
-                              autoFocus={!!publication.live}
-                              onChange={(event) => {
-                                setPrefixEdit(event.target.value)
-                                setPrefixRequestError('')
-                              }}
-                              disabled={
-                                busy || !!active || !publication.enabled
-                              }
-                              autoCapitalize="none"
-                              autoCorrect="off"
-                              spellCheck={false}
-                              maxLength={63}
-                              aria-invalid={!!prefixError}
-                              aria-describedby="publication-prefix-hint"
-                            />
-                            <span>.{publication.domainSuffix}</span>
-                          </div>
-                        </div>
-                        <p
-                          id="publication-prefix-hint"
-                          className={
-                            prefixError ? 'publication-domain-error' : ''
-                          }
-                        >
-                          {prefixError ||
-                            (publication.live
-                              ? '更新地址后原地址将无法访问，应用内容保持不变。也可在发布版本时一并更新地址。'
-                              : '修改地址后，点击发布即可生效。支持字母、数字和连字符，地址不可重复。')}
-                        </p>
-                        {publication.live && (
-                          <div className="publication-address-actions">
-                            <button
-                              disabled={
-                                busy ||
-                                !!active ||
-                                !publication.enabled ||
-                                !prefixChanged ||
-                                !!prefixError
-                              }
-                              onClick={() => void updatePublicationAddress()}
-                            >
-                              更新地址
-                            </button>
-                            <button
-                              disabled={busy || !!active}
-                              onClick={() => {
-                                setPrefixEdit(null)
-                                setPrefixRequestError('')
-                              }}
-                            >
-                              取消
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                  {!publication?.live && publicationAddressEditor}
                   <div className="publication-controls">
                     <button
                       className="primary-button"
@@ -1870,22 +1871,7 @@ function WorkspaceSession({
                           : `发布 v${shown.number}${publication?.live && prefixChanged ? ' 并更新地址' : ''}`
                         : '首次构建成功后可发布'}
                     </button>
-                    {shown && <span>仅发布版本快照，不包含草稿修改</span>}
                   </div>
-                  {shown &&
-                    !publishedVersionSelected &&
-                    publication?.domainSuffix &&
-                    !prefixError && (
-                      <p className="publication-target" aria-live="polite">
-                        将 v{shown.number} 发布到{' '}
-                        <strong>
-                          {normalizedPrefix}.{publication.domainSuffix}
-                        </strong>
-                        {publication.live &&
-                          prefixChanged &&
-                          '，原地址将停止访问。'}
-                      </p>
-                    )}
                   <h3>发布记录</h3>
                   {!publication?.releases.length && (
                     <p className="workspace-hint">
@@ -2066,6 +2052,52 @@ function WorkspaceSession({
           </div>
         )}
       </main>
+      {tab === 'publish' && editingPublicationAddress && (
+        <WorkspaceDialogFrame
+          titleId="publication-address-title"
+          dismissible={!busy}
+          onClose={() => {
+            setPrefixEdit(null)
+            setPrefixRequestError('')
+          }}
+        >
+          <h2 id="publication-address-title">修改发布地址</h2>
+          <form
+            aria-busy={busy}
+            onSubmit={(event) => {
+              event.preventDefault()
+              void updatePublicationAddress()
+            }}
+          >
+            {publicationAddressEditor}
+            <div className="workspace-dialog-actions">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setPrefixEdit(null)
+                  setPrefixRequestError('')
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={
+                  busy ||
+                  !!active ||
+                  !publication?.enabled ||
+                  !prefixChanged ||
+                  !!prefixError
+                }
+              >
+                {busy ? '正在更新…' : '更新地址'}
+              </button>
+            </div>
+          </form>
+        </WorkspaceDialogFrame>
+      )}
       {dialog}
     </div>
   )
