@@ -50,19 +50,25 @@ export const agentTools = [
   ),
   tool(
     'read_file',
-    'Read source lines (1-based, at most 2000 lines and 16000 characters per call). Prefer one larger read over many small slices; use search_files to locate specific content in large files.',
-    { path: string, startLine: integer, endLine: integer },
+    'Read source lines (1-based, at most 2000 lines and 16000 characters per call). Set startColumn to 1 initially; it is a 1-based UTF-16 column applied only to startLine. The result includes the actual returnedRange, truncated flag and exact nextRead arguments when the character limit cuts the requested range. Follow nextRead to continue without repeating or skipping source. Prefer one larger read over many small slices; use search_files to locate specific content in large files.',
+    {
+      path: string,
+      startLine: integer,
+      endLine: integer,
+      startColumn: integer,
+    },
     z
       .object({
         path,
         startLine: z.number().int().min(1),
         endLine: z.number().int().min(1),
+        startColumn: z.number().int().min(1).default(1),
       })
       .strict(),
   ),
   tool(
     'search_files',
-    'Search source using a literal substring, at most 50 matches.',
+    'Search source using a literal substring. Returns matches (at most 50 matching lines), totalMatches and truncated; when truncated, narrow the query to locate the needed source.',
     { query: string },
     z.object({ query: z.string().min(1).max(200) }).strict(),
   ),

@@ -1569,6 +1569,64 @@ describe('coding agent workspace loop', () => {
       expect(getProject(project.id).versions).toHaveLength(1)
     },
   )
+  it('feeds inspection metadata to the model and persists one diagnostic event per call', async () => {
+    const project = newProject(),
+      runtime = fakeRuntime()
+    const task = queueAgent(project.id)
+    task.candidateFiles = task.candidateFiles.map((file) =>
+      file.path === 'src/App.jsx'
+        ? {
+            ...file,
+            content:
+              '// ' +
+              'x'.repeat(20000) +
+              '\nexport default () => <h1>分类</h1>',
+          }
+        : file,
+    )
+    checkpointAgent(task)
+    const model = scripted(
+      turn([
+        call('read_file', { path: 'src/App.jsx', startLine: 1, endLine: 100 }),
+        call('search_files', { query: '分类' }),
+        call('read_file', {
+          path: 'src/missing.jsx',
+          startLine: 3,
+          endLine: 10,
+        }),
+        call('read_file', { path: 'src/App.jsx', startLine: 0, endLine: 10 }),
+      ]),
+      turn([], '完成'),
+    )
+    const result = await agentRun(task, runtime, model.provider)
+    expect(result.status).toBe('completed')
+    const outputs = model.next.mock.calls[1][0].map((input) =>
+      input.type === 'tool' ? JSON.parse(input.output) : null,
+    )
+    expect(outputs[0]).toMatchObject({
+      truncated: true,
+      returnedRange: { endLine: 1 },
+      nextRead: { path: 'src/App.jsx', startLine: 1, startColumn: 15998 },
+    })
+    expect(outputs[1]).toMatchObject({
+      totalMatches: 1,
+      truncated: false,
+      matches: [{ path: 'src/App.jsx', line: 2 }],
+    })
+    expect(outputs[2]).toHaveProperty('error', '文件不存在')
+    expect(outputs[3]).toHaveProperty('error', '工具参数无效，请按定义提供参数')
+    const events = result.events.filter((event) => event.type === 'tool')
+    expect(events).toHaveLength(4)
+    expect(events[0].message).toContain('返回 1:1–1:15997')
+    expect(events[0].message).toContain('续读参数')
+    expect(events[0].message).not.toContain('x'.repeat(100))
+    expect(events[1].message).toContain('"分类" · 命中 1 处')
+    expect(events[1].message).toContain('src/App.jsx:2')
+    expect(events[2].message).toContain(
+      'src/missing.jsx · 请求 3:1–10 行 · 失败：文件不存在',
+    )
+    expect(events[3].message).toContain('工具参数无效')
+  })
   it('creates todo, then adds filtering while preserving prior source and immutable previews', async () => {
     const project = newProject(),
       runtime = fakeRuntime()
