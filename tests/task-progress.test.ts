@@ -75,6 +75,28 @@ describe('task progress presentation', () => {
     expect(html).toContain('src/App.jsx:12 缺少右括号')
   })
 
+  it('shows inspection ranges, queries, counts and expandable continuation details', () => {
+    const html = render([
+      event(
+        '工具 read_file · src/App.jsx · 请求 1:1–100 行 · 返回 1:1–40:20（共 120 行） · 已截断\n续读参数：{"startLine":40,"startColumn":21}',
+        'tool',
+        'read_file',
+      ),
+      event(
+        '工具 search_files · "新增分类" · 命中 2 处\n匹配位置：\nsrc/App.jsx:40\nsrc/styles.css:12',
+        'tool',
+        'search_files',
+      ),
+    ])
+    expect(html).toContain('读取文件 src/App.jsx · 请求 1:1–100 行')
+    expect(html).toContain('已截断')
+    expect(html).toContain('续读参数')
+    expect(html).toContain('startColumn')
+    expect(html).toContain('搜索文件 &quot;新增分类&quot; · 命中 2 处')
+    expect(html).toContain('src/styles.css:12')
+    expect(html).toContain('<details class="task-event-details">')
+  })
+
   it('excludes final replies and their historical model copies from progress', () => {
     for (const status of ['running', 'completed'] as const) {
       for (const warning of ['', '\n\n自动测试提示：尚未进行功能测试。']) {

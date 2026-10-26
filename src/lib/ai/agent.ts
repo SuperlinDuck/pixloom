@@ -18,6 +18,12 @@ import { applyOperations, snapshot } from '../workspace-files'
 import type { BuildAsset, Task } from '../types'
 import type { ModelProvider } from './provider'
 import { agentTools, type AgentInput, type ToolCall } from './tools'
+import {
+  readSource,
+  readSourceEvent,
+  searchSource,
+  searchSourceEvent,
+} from './source-inspection'
 import type { BrowserStep, BrowserReport } from '../browser-schema'
 
 function addEvent(
@@ -214,7 +220,15 @@ export async function runCodingAgent(
     const tool = agentTools.find((t) => t.name === call.name)
     if (!tool) return { error: '未知工具' }
     const parsed = tool.schema.safeParse(call.arguments)
-    if (!parsed.success) return { error: '工具参数无效，请按定义提供参数' }
+    if (!parsed.success) {
+      if (['read_file', 'search_files'].includes(call.name))
+        addEvent(
+          task,
+          `工具 ${call.name} · 失败：工具参数无效，请按定义提供参数`,
+          { type: 'tool', tool: call.name },
+        )
+      return { error: '工具参数无效，请按定义提供参数' }
+    }
     const args = parsed.data
     const files = task.candidateFiles
     const file = () => {
@@ -241,34 +255,36 @@ export async function runCodingAgent(
           bytes: Buffer.byteLength(f.content),
         }))
       case 'read_file': {
-        if (
-          args.endLine < args.startLine ||
-          args.endLine - args.startLine >= 2000
-        )
-          throw new Error('每次最多读取 2000 行')
-        const lines = file().split('\n')
-        return {
-          totalLines: lines.length,
-          content: lines
-            .slice(args.startLine - 1, args.endLine)
-            .map((line, i) => `${i + args.startLine}: ${line}`)
-            .join('\n')
-            .slice(0, 16000),
+        const readArgs = {
+          path: args.path,
+          startLine: args.startLine,
+          endLine: args.endLine,
+          startColumn: args.startColumn,
+        }
+        try {
+          const result = readSource(file(), readArgs)
+          addEvent(task, readSourceEvent(readArgs, result), {
+            type: 'tool',
+            tool: call.name,
+          })
+          return result
+        } catch (error) {
+          const message = (error as Error).message
+          addEvent(
+            task,
+            `工具 read_file · ${args.path} · 请求 ${args.startLine}:${args.startColumn}–${args.endLine} 行 · 失败：${message}`,
+            { type: 'tool', tool: call.name },
+          )
+          return { error: message }
         }
       }
       case 'search_files': {
-        const matches: { path: string; line: number; text: string }[] = []
-        for (const f of files)
-          for (const [i, line] of Array.from(f.content.split('\n').entries())) {
-            if (line.includes(args.query))
-              matches.push({
-                path: f.path,
-                line: i + 1,
-                text: line.slice(0, 240),
-              })
-            if (matches.length >= 50) return matches
-          }
-        return matches
+        const result = searchSource(files, args.query)
+        addEvent(task, searchSourceEvent(args.query, result), {
+          type: 'tool',
+          tool: call.name,
+        })
+        return result
       }
       case 'read_errors':
         return { output: lastOutput }
@@ -465,11 +481,12 @@ export async function runCodingAgent(
         throw new Error('Coding Agent 工具调用次数已达上限')
       state.toolCalls++
       checkpointAgent(task, options.owner)
-      addEvent(
-        task,
-        `工具 ${call.name}${typeof call.arguments === 'object' && call.arguments && 'path' in call.arguments ? ` · ${String(call.arguments.path).slice(0, 160)}` : ''}`,
-        { type: 'tool', tool: call.name },
-      )
+      if (!['read_file', 'search_files'].includes(call.name))
+        addEvent(
+          task,
+          `工具 ${call.name}${typeof call.arguments === 'object' && call.arguments && 'path' in call.arguments ? ` · ${String(call.arguments.path).slice(0, 160)}` : ''}`,
+          { type: 'tool', tool: call.name },
+        )
       let result: unknown
       // Read/edit validation failures are repairable; build/runtime/storage failures propagate.
       if (['read_file', 'edit_file'].includes(call.name)) {
