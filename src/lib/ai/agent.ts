@@ -31,7 +31,12 @@ function addEvent(
   message: string,
   metadata: Parameters<typeof storeAddEvent>[2] = {},
 ) {
-  storeAddEvent(task, redactTestCredentials(task.id, message), metadata)
+  storeAddEvent(task, redactTestCredentials(task.id, message), {
+    ...metadata,
+    ...(metadata.output !== undefined
+      ? { output: redactTestCredentials(task.id, metadata.output) }
+      : {}),
+  })
 }
 
 export const AGENT_LIMITS = {
@@ -221,11 +226,19 @@ export async function runCodingAgent(
     if (!tool) return { error: '未知工具' }
     const parsed = tool.schema.safeParse(call.arguments)
     if (!parsed.success) {
-      if (['read_file', 'search_files'].includes(call.name))
+      if (
+        ['read_file', 'search_files', 'list_files', 'read_errors'].includes(
+          call.name,
+        )
+      )
         addEvent(
           task,
           `工具 ${call.name} · 失败：工具参数无效，请按定义提供参数`,
-          { type: 'tool', tool: call.name },
+          {
+            type: 'tool',
+            tool: call.name,
+            output: '工具参数无效，请按定义提供参数。',
+          },
         )
       return { error: '工具参数无效，请按定义提供参数' }
     }
@@ -249,11 +262,21 @@ export async function runCodingAgent(
       }
       case 'cloud_schema':
         return inspectSchema(task.projectId, options.signal)
-      case 'list_files':
-        return files.map((f) => ({
+      case 'list_files': {
+        const result = files.map((f) => ({
           path: f.path,
           bytes: Buffer.byteLength(f.content),
         }))
+        addEvent(task, '工具 list_files', {
+          type: 'tool',
+          tool: call.name,
+          output:
+            result
+              .map((file) => `${file.path}（${file.bytes} 字节）`)
+              .join('\n') || '没有文件。',
+        })
+        return result
+      }
       case 'read_file': {
         const readArgs = {
           path: args.path,
@@ -266,6 +289,9 @@ export async function runCodingAgent(
           addEvent(task, readSourceEvent(readArgs, result), {
             type: 'tool',
             tool: call.name,
+            output:
+              (result.content || result.notice) +
+              (result.truncated ? '\n\n…本次返回内容已截断，可继续读取。' : ''),
           })
           return result
         } catch (error) {
@@ -273,7 +299,7 @@ export async function runCodingAgent(
           addEvent(
             task,
             `工具 read_file · ${args.path} · 请求 ${args.startLine}:${args.startColumn}–${args.endLine} 行 · 失败：${message}`,
-            { type: 'tool', tool: call.name },
+            { type: 'tool', tool: call.name, output: message },
           )
           return { error: message }
         }
@@ -283,10 +309,23 @@ export async function runCodingAgent(
         addEvent(task, searchSourceEvent(args.query, result), {
           type: 'tool',
           tool: call.name,
+          output: result.matches.length
+            ? result.matches
+                .map((match) => `${match.path}:${match.line}\n${match.text}`)
+                .join('\n\n') +
+              (result.truncated
+                ? `\n\n…共命中 ${result.totalMatches} 行，仅展示前 ${result.matches.length} 行。`
+                : '')
+            : '未找到匹配内容。',
         })
         return result
       }
       case 'read_errors':
+        addEvent(task, '工具 read_errors', {
+          type: 'tool',
+          tool: call.name,
+          output: lastOutput,
+        })
         return { output: lastOutput }
       case 'build': {
         const frontend = snapshot(
@@ -481,7 +520,11 @@ export async function runCodingAgent(
         throw new Error('Coding Agent 工具调用次数已达上限')
       state.toolCalls++
       checkpointAgent(task, options.owner)
-      if (!['read_file', 'search_files'].includes(call.name))
+      if (
+        !['read_file', 'search_files', 'list_files', 'read_errors'].includes(
+          call.name,
+        )
+      )
         addEvent(
           task,
           `工具 ${call.name}${typeof call.arguments === 'object' && call.arguments && 'path' in call.arguments ? ` · ${String(call.arguments.path).slice(0, 160)}` : ''}`,

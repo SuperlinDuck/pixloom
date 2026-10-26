@@ -62,6 +62,7 @@ export type TaskEvent = {
   message: string
   type?: 'model' | 'tool' | 'build' | 'validation' | 'ready' | 'usage' | 'reply'
   tool?: string
+  output?: string
 }
 export type Task = {
   id: string

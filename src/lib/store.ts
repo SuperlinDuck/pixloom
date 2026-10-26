@@ -723,12 +723,17 @@ export function attemptActive(task: Task, owner?: string) {
 export function addEvent(
   task: Task,
   message: string,
-  metadata: Pick<TaskEvent, 'type' | 'tool'> = {},
+  metadata: Pick<TaskEvent, 'type' | 'tool' | 'output'> = {},
 ) {
   transaction(() => {
     if (!attemptActive(task)) return
     const events = getTask(task.id).events
-    events.push({ at: now(), message: message.slice(-16000), ...metadata })
+    const event = { at: now(), message: message.slice(-16000), ...metadata }
+    if (event.output && event.output.length > 20000)
+      event.output =
+        event.output.slice(0, 19960).replace(/[\uD800-\uDBFF]$/, '') +
+        '\n…返回内容过长，已截断展示。'
+    events.push(event)
     db()
       .prepare('UPDATE tasks SET events=?,updatedAt=? WHERE id=?')
       .run(JSON.stringify(events.slice(-100)), now(), task.id)

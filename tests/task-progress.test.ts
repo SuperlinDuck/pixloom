@@ -4,11 +4,17 @@ import { describe, expect, it } from 'vitest'
 import { TaskProgress } from '../src/components/task-progress'
 import type { TaskEvent, TaskSummary } from '../src/lib/types'
 
-const event = (message: string, type?: TaskEvent['type'], tool?: string) => ({
+const event = (
+  message: string,
+  type?: TaskEvent['type'],
+  tool?: string,
+  output?: string,
+) => ({
   at: '2026-10-25T15:00:00Z',
   message,
   type,
   tool,
+  output,
 })
 const render = (
   events: TaskEvent[],
@@ -75,26 +81,66 @@ describe('task progress presentation', () => {
     expect(html).toContain('src/App.jsx:12 缺少右括号')
   })
 
-  it('shows inspection ranges, queries, counts and expandable continuation details', () => {
+  it('uses concise per-record summaries and shows actual tool results in each detail', () => {
     const html = render([
       event(
         '工具 read_file · src/App.jsx · 请求 1:1–100 行 · 返回 1:1–40:20（共 120 行） · 已截断\n续读参数：{"startLine":40,"startColumn":21}',
         'tool',
         'read_file',
+        '1: const category = "工作"\n2: return <button>新增分类</button>\n\n…本次返回内容已截断，可继续读取。',
       ),
       event(
         '工具 search_files · "新增分类" · 命中 2 处\n匹配位置：\nsrc/App.jsx:40\nsrc/styles.css:12',
         'tool',
         'search_files',
+        'src/App.jsx:40\n<button>新增分类</button>\n\nsrc/styles.css:12\n.category { color: blue; }',
       ),
     ])
-    expect(html).toContain('读取文件 src/App.jsx · 请求 1:1–100 行')
+    expect(html).toContain('读取文件 src/App.jsx</span>')
+    expect(html).toContain('搜索文件 &quot;新增分类&quot;</span>')
+    expect(html).toContain('const category = &quot;工作&quot;')
+    expect(html).toContain('&lt;button&gt;新增分类&lt;/button&gt;')
+    expect(html).not.toContain('<button>新增分类</button>')
     expect(html).toContain('已截断')
-    expect(html).toContain('续读参数')
-    expect(html).toContain('startColumn')
-    expect(html).toContain('搜索文件 &quot;新增分类&quot; · 命中 2 处')
+    expect(html).not.toContain('请求 1:1')
+    expect(html).not.toContain('续读参数')
+    expect(html).not.toContain('startColumn')
+    expect(html).not.toContain('命中 2 处')
     expect(html).toContain('src/styles.css:12')
+    expect(html).toContain('.category { color: blue; }')
     expect(html).toContain('<details class="task-event-details">')
+    expect(html.match(/<details class="task-event-details">/g)).toHaveLength(2)
+    expect(html).not.toContain('查看技术日志')
+    expect(html.split('class="task-latest-progress"')[1]).not.toContain('命中')
+  })
+
+  it('expands short errors and empty results, and explains missing historical output', () => {
+    const html = render([
+      event(
+        '工具 read_file · src/missing.jsx · 请求 1:1–10 行 · 失败：文件不存在',
+        'tool',
+        'read_file',
+        '文件不存在',
+      ),
+      event(
+        '工具 search_files · "missing" · 命中 0 处',
+        'tool',
+        'search_files',
+        '未找到匹配内容。',
+      ),
+      event('工具 list_files', 'tool', 'list_files', ''),
+      event(
+        '工具 read_file · src/old.jsx · 请求 1:1–10 行\n请求范围已完整返回。',
+        'tool',
+        'read_file',
+      ),
+    ])
+    expect(html).toContain('<pre class="task-log">文件不存在</pre>')
+    expect(html).toContain('<pre class="task-log">未找到匹配内容。</pre>')
+    expect(html).toContain('没有返回文本。')
+    expect(html).toContain('此历史记录未保存工具返回内容。')
+    expect(html).not.toContain('请求范围已完整返回')
+    expect(html).not.toContain('请求 1:1')
   })
 
   it('excludes final replies and their historical model copies from progress', () => {

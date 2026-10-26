@@ -1620,12 +1620,31 @@ describe('coding agent workspace loop', () => {
     expect(events[0].message).toContain('返回 1:1–1:15997')
     expect(events[0].message).toContain('续读参数')
     expect(events[0].message).not.toContain('x'.repeat(100))
+    expect(events[0].output).toContain('1: // ' + 'x'.repeat(100))
+    expect(events[0].output).toContain('本次返回内容已截断')
     expect(events[1].message).toContain('"分类" · 命中 1 处')
     expect(events[1].message).toContain('src/App.jsx:2')
+    expect(events[1].output).toBe(
+      'src/App.jsx:2\nexport default () => <h1>分类</h1>',
+    )
     expect(events[2].message).toContain(
       'src/missing.jsx · 请求 3:1–10 行 · 失败：文件不存在',
     )
     expect(events[3].message).toContain('工具参数无效')
+    expect(events[2].output).toBe('文件不存在')
+    expect(events[3].output).toContain('工具参数无效')
+  })
+  it('bounds persisted tool output and explicitly marks display truncation', () => {
+    const task = queueAgent(newProject().id)
+    addEvent(task, '工具 read_file · src/App.jsx', {
+      type: 'tool',
+      tool: 'read_file',
+      output: '🙂'.repeat(15000),
+    })
+    const output = getTask(task.id).events.at(-1)!.output!
+    expect(output.length).toBeLessThanOrEqual(20000)
+    expect(output).toContain('已截断展示')
+    expect(output).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
   })
   it('creates todo, then adds filtering while preserving prior source and immutable previews', async () => {
     const project = newProject(),
