@@ -3475,7 +3475,12 @@ h1 {
   padding-right: 12px;
   color: #71717a;
 }
-.publication-domain-controls > button {
+.publication-address-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.publication-address-actions > button {
   flex-shrink: 0;
   padding: 10px 12px;
   border: 1px solid #d4d4d8;
@@ -3497,6 +3502,14 @@ h1 {
   width: auto;
   justify-content: center;
   gap: 8px;
+}
+.publication-target {
+  overflow-wrap: anywhere;
+  color: #71717a;
+}
+.publication-target strong {
+  color: #3f3f46;
+  font-weight: 500;
 }
 .release-item {
   border-top: 1px solid #e4e4e7;

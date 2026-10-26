@@ -216,6 +216,7 @@ function WorkspaceSession({
   const [file, setFile] = useState('src/App.jsx')
   const [publication, setPublication] = useState<Publication | null>(null)
   const [prefixEdit, setPrefixEdit] = useState<string | null>(null)
+  const [prefixRequestError, setPrefixRequestError] = useState('')
   const [history, setHistory] = useState(false),
     [historical, setHistorical] = useState<VersionDetail | null>(null)
   const [current, setCurrent] = useState<VersionDetail | null>(null),
@@ -271,8 +272,14 @@ function WorkspaceSession({
   const latestTask = active || detail?.tasks[0]
   const domainPrefix = prefixEdit ?? publication?.prefix ?? ''
   const normalizedPrefix = normalizePublicationPrefix(domainPrefix)
-  const prefixError = publicationPrefixError(normalizedPrefix)
+  const prefixError =
+    publicationPrefixError(normalizedPrefix) || prefixRequestError
   const prefixChanged = normalizedPrefix !== publication?.prefix
+  const editingPublicationAddress = !publication?.live || prefixEdit !== null
+  const publishedVersionSelected =
+    !!shown &&
+    publication?.live?.versionId === shown.id &&
+    publication.live.artifactId === shown.artifactId
 
   const resizeLandingPrompt = useCallback(() => {
     const textarea = landingPromptRef.current
@@ -300,6 +307,7 @@ function WorkspaceSession({
 
   useEffect(() => {
     setPrefixEdit(null)
+    setPrefixRequestError('')
   }, [projectId, publication?.prefix])
 
   useEffect(() => {
@@ -799,13 +807,23 @@ function WorkspaceSession({
       )
     })
   }
+  async function publicationRequest<T>(body: unknown, method = 'POST') {
+    try {
+      return await api<T>(`${base}/releases`, body, method)
+    } catch (e) {
+      const message = (e as Error).message
+      if (message.includes('域名前缀'))
+        setPrefixRequestError(message.replaceAll('域名前缀', '发布地址'))
+      throw e
+    }
+  }
   async function publish(
     action: 'publish' | 'rollback' | 'unpublish',
     releaseId?: string,
   ) {
     if (!publication || busy || active || !ready) return
     await perform(async () => {
-      await api(`${base}/releases`, {
+      await publicationRequest({
         action,
         expectedReleaseId: publication.live?.id || null,
         ...(action === 'publish'
@@ -823,6 +841,8 @@ function WorkspaceSession({
             : {}),
       })
       setPublication(await api<Publication>(`${base}/releases`))
+      setPrefixEdit(null)
+      setPrefixRequestError('')
       await refresh()
       setNotice(
         action === 'unpublish'
@@ -831,11 +851,11 @@ function WorkspaceSession({
       )
     })
   }
-  async function savePublicationPrefix() {
-    if (!publication || busy || active || prefixError) return
+  async function updatePublicationAddress() {
+    if (!publication?.live || busy || active || prefixError || !prefixChanged)
+      return
     await perform(async () => {
-      const result = await api<Publication>(
-        `${base}/releases`,
+      const result = await publicationRequest<Publication>(
         {
           prefix: normalizedPrefix,
           expectedPrefix: publication.prefix,
@@ -845,11 +865,7 @@ function WorkspaceSession({
       )
       setPublication(result)
       setPrefixEdit(null)
-      setNotice(
-        result.live
-          ? '域名前缀已更新，新地址已生效。'
-          : '域名前缀已保存，发布时将使用此地址。',
-      )
+      setNotice('发布地址已更新，新地址已生效。')
     })
   }
   const diffs = diffFiles(
@@ -1734,6 +1750,16 @@ function WorkspaceSession({
                         {publication.live.url}
                         <ExternalLink size={14} />
                       </a>
+                      {!editingPublicationAddress && (
+                        <button
+                          disabled={busy || !!active || !publication.enabled}
+                          aria-expanded={false}
+                          aria-controls="publication-address-editor"
+                          onClick={() => setPrefixEdit(publication.prefix)}
+                        >
+                          修改地址
+                        </button>
+                      )}
                       <button
                         disabled={busy || !!active || !ready}
                         onClick={async () => {
@@ -1754,59 +1780,75 @@ function WorkspaceSession({
                   {publication && !publication.enabled && (
                     <p className="workspace-hint">{publication.reason}</p>
                   )}
-                  {publication?.prefix && publication.domainSuffix && (
-                    <form
-                      className="publication-domain"
-                      onSubmit={(event) => {
-                        event.preventDefault()
-                        void savePublicationPrefix()
-                      }}
-                    >
-                      <label htmlFor="publication-prefix">域名前缀</label>
-                      <div className="publication-domain-controls">
-                        <div className="publication-domain-input">
-                          <input
-                            id="publication-prefix"
-                            value={domainPrefix}
-                            onChange={(event) =>
-                              setPrefixEdit(event.target.value)
-                            }
-                            disabled={busy || !!active || !publication.enabled}
-                            autoCapitalize="none"
-                            autoCorrect="off"
-                            spellCheck={false}
-                            maxLength={63}
-                            aria-invalid={!!prefixError}
-                            aria-describedby="publication-prefix-hint"
-                          />
-                          <span>.{publication.domainSuffix}</span>
+                  {publication?.prefix &&
+                    publication.domainSuffix &&
+                    editingPublicationAddress && (
+                      <div
+                        id="publication-address-editor"
+                        className="publication-domain"
+                      >
+                        <label htmlFor="publication-prefix">发布地址</label>
+                        <div className="publication-domain-controls">
+                          <div className="publication-domain-input">
+                            <input
+                              id="publication-prefix"
+                              value={domainPrefix}
+                              autoFocus={!!publication.live}
+                              onChange={(event) => {
+                                setPrefixEdit(event.target.value)
+                                setPrefixRequestError('')
+                              }}
+                              disabled={
+                                busy || !!active || !publication.enabled
+                              }
+                              autoCapitalize="none"
+                              autoCorrect="off"
+                              spellCheck={false}
+                              maxLength={63}
+                              aria-invalid={!!prefixError}
+                              aria-describedby="publication-prefix-hint"
+                            />
+                            <span>.{publication.domainSuffix}</span>
+                          </div>
                         </div>
-                        <button
-                          type="submit"
-                          disabled={
-                            busy ||
-                            !!active ||
-                            !publication.enabled ||
-                            !prefixChanged ||
-                            !!prefixError
+                        <p
+                          id="publication-prefix-hint"
+                          className={
+                            prefixError ? 'publication-domain-error' : ''
                           }
                         >
-                          保存前缀
-                        </button>
+                          {prefixError ||
+                            (publication.live
+                              ? '更新地址后原地址将无法访问，应用内容保持不变。也可在发布版本时一并更新地址。'
+                              : '修改地址后，点击发布即可生效。支持字母、数字和连字符，地址不可重复。')}
+                        </p>
+                        {publication.live && (
+                          <div className="publication-address-actions">
+                            <button
+                              disabled={
+                                busy ||
+                                !!active ||
+                                !publication.enabled ||
+                                !prefixChanged ||
+                                !!prefixError
+                              }
+                              onClick={() => void updatePublicationAddress()}
+                            >
+                              更新地址
+                            </button>
+                            <button
+                              disabled={busy || !!active}
+                              onClick={() => {
+                                setPrefixEdit(null)
+                                setPrefixRequestError('')
+                              }}
+                            >
+                              取消
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      <p
-                        id="publication-prefix-hint"
-                        className={
-                          prefixError ? 'publication-domain-error' : ''
-                        }
-                      >
-                        {prefixError ||
-                          (publication.live
-                            ? '修改后立即使用新地址，原地址停止访问。前缀不能与其他项目重复。'
-                            : '默认随机生成，可直接修改后发布。支持字母、数字和连字符，前缀不可重复。')}
-                      </p>
-                    </form>
-                  )}
+                    )}
                   <div className="publication-controls">
                     <button
                       className="primary-button"
@@ -1817,16 +1859,33 @@ function WorkspaceSession({
                         !shown ||
                         !publication?.enabled ||
                         !!prefixError ||
-                        (publication.live?.versionId === shown.id &&
-                          publication.live?.artifactId === shown.artifactId)
+                        publishedVersionSelected
                       }
                       onClick={() => void publish('publish')}
                     >
                       <Rocket size={15} />
-                      {shown ? `发布 v${shown.number}` : '首次构建成功后可发布'}
+                      {shown
+                        ? publishedVersionSelected
+                          ? `v${shown.number} 已在线上`
+                          : `发布 v${shown.number}${publication?.live && prefixChanged ? ' 并更新地址' : ''}`
+                        : '首次构建成功后可发布'}
                     </button>
                     {shown && <span>仅发布版本快照，不包含草稿修改</span>}
                   </div>
+                  {shown &&
+                    !publishedVersionSelected &&
+                    publication?.domainSuffix &&
+                    !prefixError && (
+                      <p className="publication-target" aria-live="polite">
+                        将 v{shown.number} 发布到{' '}
+                        <strong>
+                          {normalizedPrefix}.{publication.domainSuffix}
+                        </strong>
+                        {publication.live &&
+                          prefixChanged &&
+                          '，原地址将停止访问。'}
+                      </p>
+                    )}
                   <h3>发布记录</h3>
                   {!publication?.releases.length && (
                     <p className="workspace-hint">
