@@ -339,7 +339,7 @@ async function main() {
       .getByRole('button', { name: '构建并保存版本', exact: true })
       .waitFor()
     const editor = page.getByRole('textbox', {
-      name: '源码 src/App.jsx',
+      name: '代码 src/App.jsx',
       exact: true,
     })
     await editor.waitFor()
@@ -357,14 +357,27 @@ async function main() {
           button.textContent?.includes('构建并保存版本') && !button.disabled,
       ),
     )
-    await page.getByRole('button', { name: '差异', exact: true }).click()
+    await page.getByRole('button', { name: '查看差异', exact: true }).click()
     await page.waitForURL(`${origin}${projectPath}/diff`)
+    const diffDialog = page.getByRole('dialog', {
+      name: '查看差异',
+      exact: true,
+    })
+    await diffDialog.waitFor()
+    assert.match(
+      (await diffDialog.textContent()) || '',
+      /unsaved route verification/,
+    )
     await page.goBack()
     await page.waitForURL(`${origin}${projectPath}/code`)
     assert.equal(await editor.inputValue(), editedSource)
     await page.goForward()
     await page.waitForURL(`${origin}${projectPath}/diff`)
-    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await diffDialog.waitFor()
+    await diffDialog
+      .getByRole('button', { name: '关闭差异', exact: true })
+      .click()
+    await page.waitForURL(`${origin}${projectPath}/code`)
     assert.equal(await editor.inputValue(), editedSource)
     await selectProject(secondProject.name)
     await page
@@ -402,14 +415,12 @@ async function main() {
     await page.waitForURL(`${origin}${projectPath}`)
     assert.deepEqual(await page.locator('.tabs button').allTextContents(), [
       '预览',
-      '源码',
-      '差异',
+      '代码',
       '发布',
     ])
     for (const [label, suffix] of [
       ['预览', ''],
-      ['源码', '/code'],
-      ['差异', '/diff'],
+      ['代码', '/code'],
       ['发布', '/publish'],
     ]) {
       await page.getByRole('button', { name: label, exact: true }).click()
@@ -420,6 +431,21 @@ async function main() {
         .filter({ hasText: label })
         .waitFor()
     }
+    assert.equal(
+      (await page.goto(`${origin}${projectPath}/diff`))!.status(),
+      200,
+    )
+    await diffDialog.waitFor()
+    await page.reload()
+    await diffDialog.waitFor()
+    await diffDialog
+      .getByRole('button', { name: '关闭差异', exact: true })
+      .click()
+    await page.waitForURL(`${origin}${projectPath}/code`)
+    assert.equal(
+      await page.getByRole('button', { name: '导出', exact: true }).count(),
+      1,
+    )
     // These views remain addressable through existing links, without toolbar tabs.
     for (const [suffix, heading] of [
       ['runtime', '执行环境'],
@@ -432,15 +458,41 @@ async function main() {
       await page.waitForURL(url)
       await page.getByRole('heading', { name: heading, exact: true }).waitFor()
     }
-    await page.getByRole('button', { name: '源码', exact: true }).click()
+    await page.getByRole('button', { name: '代码', exact: true }).click()
     await page.getByRole('button', { name: '版本历史', exact: true }).click()
+    const historyPanel = page.getByRole('region', {
+      name: '版本历史',
+      exact: true,
+    })
+    await historyPanel
+      .getByText('点击某个版本可预览页面和查看代码', { exact: true })
+      .waitFor()
     await page.locator('.version-item').first().click()
+    await page.waitForURL(`${origin}${projectPath}/versions/${version.id}`)
+    await historyPanel.waitFor({ state: 'hidden' })
+    await page.getByText('正在查看历史 v1 · 只读', { exact: true }).waitFor()
+    assert.deepEqual(await page.locator('.tabs button').allTextContents(), [
+      '预览',
+      '代码',
+    ])
+    await page.getByRole('button', { name: '代码', exact: true }).click()
     await page.waitForURL(`${origin}${projectPath}/versions/${version.id}/code`)
     await page.reload()
     await page.getByText('正在查看历史 v1 · 只读', { exact: true }).waitFor()
     assert.equal(await editor.getAttribute('readonly'), '')
-    await page.getByRole('button', { name: '返回草稿', exact: true }).click()
+    await page.getByRole('button', { name: '查看差异', exact: true }).click()
+    await diffDialog.waitFor()
+    await diffDialog
+      .getByRole('button', { name: '关闭差异', exact: true })
+      .click()
+    await page.waitForURL(`${origin}${projectPath}/versions/${version.id}/code`)
+    await page.getByRole('button', { name: '退出查看', exact: true }).click()
     await page.waitForURL(`${origin}${projectPath}/code`)
+    assert.deepEqual(await page.locator('.tabs button').allTextContents(), [
+      '预览',
+      '代码',
+      '发布',
+    ])
     // The root URL always opens a new conversation, regardless of old storage.
     const home = await owner.newPage()
     await home.goto(origin)

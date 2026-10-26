@@ -1,17 +1,20 @@
 'use client'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-const focusableControls = 'input:not(:disabled),button:not(:disabled)'
+const focusableControls =
+  'input:not(:disabled),button:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],[tabindex="0"]'
 
 export function WorkspaceDialogFrame({
   titleId,
   onClose,
   dismissible = true,
+  className = '',
   children,
 }: {
   titleId: string
   onClose: () => void
   dismissible?: boolean
+  className?: string
   children: ReactNode
 }) {
   const ref = useRef<HTMLElement>(null)
@@ -26,7 +29,7 @@ export function WorkspaceDialogFrame({
     <div className="modal-backdrop" onClick={() => dismissible && onClose()}>
       <section
         ref={ref}
-        className="workspace-dialog"
+        className={`workspace-dialog ${className}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -61,18 +64,28 @@ export function WorkspaceDialogFrame({
   )
 }
 
-type Question = {
-  message: string
+type QuestionOptions = { title?: string; confirmLabel?: string }
+type Question = QuestionOptions & {
+  message: ReactNode
   input: boolean
   resolve: (value: string | null) => void
 }
 export function useWorkspaceDialog() {
   const [question, setQuestion] = useState<Question | null>(null),
     [value, setValue] = useState('')
-  function ask(message: string, initial?: string): Promise<string | null> {
+  function ask(
+    message: ReactNode,
+    initial?: string,
+    options: QuestionOptions = {},
+  ): Promise<string | null> {
     setValue(initial || '')
     return new Promise((resolve) =>
-      setQuestion({ message, input: initial !== undefined, resolve }),
+      setQuestion({
+        ...options,
+        message,
+        input: initial !== undefined,
+        resolve,
+      }),
     )
   }
   function close(answer: string | null) {
@@ -85,9 +98,13 @@ export function useWorkspaceDialog() {
       onClose={() => close(null)}
     >
       <h2 id="workspace-dialog-title">
-        {question.input ? '文件路径' : '确认操作'}
+        {question.title || (question.input ? '文件路径' : '确认操作')}
       </h2>
-      <p>{question.message}</p>
+      {typeof question.message === 'string' ? (
+        <p>{question.message}</p>
+      ) : (
+        question.message
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -111,7 +128,7 @@ export function useWorkspaceDialog() {
             className="primary-button"
             disabled={question.input && !value.trim()}
           >
-            确认
+            {question.confirmLabel || '确认'}
           </button>
         </div>
       </form>
