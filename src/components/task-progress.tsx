@@ -43,7 +43,13 @@ function eventPresentation(event: TaskEvent) {
   const tool = event.tool || event.message.match(/^工具\s+(\w+)/)?.[1]
   const action = toolLabels[tool as keyof typeof toolLabels]
   if (action) {
-    const detail = event.message.replace(/^工具\s+\w+\s*(?:·\s*)?/, '')
+    let detail = event.message
+      .replace(/^工具\s+\w+\s*(?:·\s*)?/, '')
+      .split('\n')[0]
+    if (tool === 'read_file') detail = detail.split(' · ')[0]
+    if (tool === 'search_files')
+      detail = detail.match(/^"(?:[^"\\]|\\.)*"/)?.[0] || ''
+    if (detail.startsWith('失败：')) detail = ''
     return {
       icon: action.icon,
       text: `${action.label}${detail ? ` ${detail}` : ''}`,
@@ -62,6 +68,14 @@ function eventPresentation(event: TaskEvent) {
               : Terminal,
     text: event.message,
   }
+}
+
+function eventOutput(event: TaskEvent) {
+  if (event.output !== undefined) return event.output || '没有返回文本。'
+  const tool = event.tool || event.message.match(/^工具\s+(\w+)/)?.[1]
+  if (tool === 'read_file' || tool === 'search_files')
+    return '此历史记录未保存工具返回内容。'
+  return event.message
 }
 
 function EventLine({ event }: { event: TaskEvent }) {
@@ -144,7 +158,8 @@ export function TaskProgress({
                     <div className="task-progress-note">
                       <MarkdownReply>{event.message}</MarkdownReply>
                     </div>
-                  ) : event.message.includes('\n') ||
+                  ) : event.output !== undefined ||
+                    event.message.includes('\n') ||
                     event.message.length > 160 ? (
                     <details className="task-event-details">
                       <summary className="task-event-row">
@@ -155,7 +170,7 @@ export function TaskProgress({
                           aria-hidden="true"
                         />
                       </summary>
-                      <pre className="task-log">{event.message}</pre>
+                      <pre className="task-log">{eventOutput(event)}</pre>
                     </details>
                   ) : (
                     <div className="task-event-row">
