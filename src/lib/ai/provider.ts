@@ -1,6 +1,7 @@
 import { reserveModelCall, settleModelCall, releaseModelCall } from './billing'
 import { contextInputBudget } from './compaction'
 import { modelRequests } from './request-limiter'
+import { limit } from '../platform-config'
 import type { Provider, Usage } from '../types'
 import {
   agentInstructions,
@@ -27,6 +28,7 @@ export type ModelProvider = {
     instructions?: string
     tools?: boolean
     retries?: number
+    onProgress?: (message: string) => void
   }): ModelSession
   generateText?(request: {
     model: string
@@ -67,7 +69,7 @@ function retryDelay(response: Response, attempt: number) {
     : fallback
 }
 
-async function requestError(response: Response) {
+async function requestError(response: Response, signal: AbortSignal) {
   const hints: Record<number, string> = {
     401: 'API Key 无效，请检查服务端配置',
     403: '模型访问被拒绝，请检查权限与地区',
@@ -79,11 +81,17 @@ async function requestError(response: Response) {
   // Inspect only a bounded error body for quota category; never echo or persist it.
   if (response.status === 429 && response.body) {
     const reader = response.body.getReader()
+    const abort = () => {
+      void reader.cancel().catch(() => {})
+    }
+    signal.addEventListener('abort', abort, { once: true })
     const chunks: Uint8Array[] = []
     let bytes = 0
     try {
+      signal.throwIfAborted()
       while (bytes < 16000) {
         const chunk = await reader.read()
+        signal.throwIfAborted()
         if (chunk.done) break
         bytes += chunk.value.byteLength
         if (bytes <= 16000) chunks.push(chunk.value)
@@ -101,9 +109,11 @@ async function requestError(response: Response) {
     } catch {
       /* Keep the generic quota message for unrecognized error formats. */
     } finally {
+      signal.removeEventListener('abort', abort)
       await reader.cancel().catch(() => {})
     }
   } else await response.body?.cancel()
+  signal.throwIfAborted()
   return {
     retryable,
     error: new Error(
@@ -118,10 +128,57 @@ async function post(
   body: unknown,
   signal: AbortSignal,
   retries = MAX_RETRIES,
+  onProgress?: (message: string) => void,
 ) {
-  return modelRequests.run(url, signal, () =>
-    postResponse(url, headers, body, signal, retries),
+  const timeoutMs = limit(
+    'PIXLOOM_MODEL_REQUEST_TIMEOUT_MS',
+    180000,
+    1000,
+    600000,
   )
+  const controller = new AbortController()
+  const requestSignal = AbortSignal.any([signal, controller.signal])
+  let phase = '等待模型请求资源或限流冷却'
+  const timeout = setTimeout(
+    () =>
+      controller.abort(
+        new Error(
+          `模型请求超过 ${timeoutMs / 1000} 秒未完成，已停止等待；请稍后重试或检查模型服务。`,
+        ),
+      ),
+    timeoutMs,
+  )
+  const slow = onProgress
+    ? setTimeout(() => {
+        if (!requestSignal.aborted)
+          onProgress(
+            `本轮模型请求已等待 30 秒，当前${phase}；本轮最多等待 ${timeoutMs / 1000} 秒。`,
+          )
+      }, 30000)
+    : undefined
+  try {
+    return await modelRequests.run(url, requestSignal, () =>
+      postResponse(
+        url,
+        headers,
+        body,
+        requestSignal,
+        retries,
+        onProgress,
+        (value) => {
+          phase = value
+        },
+      ),
+    )
+  } catch (error) {
+    if (controller.signal.aborted && !signal.aborted)
+      throw controller.signal.reason
+    throw error
+  } finally {
+    clearTimeout(timeout)
+    clearTimeout(slow)
+    controller.abort()
+  }
 }
 
 async function postResponse(
@@ -130,6 +187,8 @@ async function postResponse(
   body: unknown,
   signal: AbortSignal,
   retries = MAX_RETRIES,
+  onProgress?: (message: string) => void,
+  onPhase?: (phase: string) => void,
 ) {
   // Retry the exact serialized request without replaying inputs into session history.
   const payload = JSON.stringify(body)
@@ -145,9 +204,11 @@ async function postResponse(
   let reservation: ReturnType<typeof reserveModelCall>
   for (let attempt = 0; ; attempt++) {
     signal.throwIfAborted()
+    onPhase?.('等待模型限流冷却')
     await modelRequests.wait(url, signal)
     reservation = reserveModelCall(payload, requestedOutput)
     try {
+      onPhase?.('等待模型服务响应')
       response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers },
@@ -158,31 +219,51 @@ async function postResponse(
       if (signal.aborted) throw error
       if (attempt === retries)
         throw new Error('无法连接模型服务，请检查网络与 API 地址')
+      onProgress?.(
+        `模型连接失败，将在 ${2 ** attempt} 秒后重试（第 ${attempt + 1}/${retries} 次）。`,
+      )
+      onPhase?.('等待自动重试')
       await waitForRetry(1000 * 2 ** attempt, signal)
       continue
     }
     if (response.ok) break
+    onPhase?.('读取模型服务错误响应')
     if ([400, 401, 403, 404, 413, 422, 429].includes(response.status))
       releaseModelCall(reservation)
-    const failure = await requestError(response)
+    const failure = await requestError(response, signal)
     if (response.status === 429 && failure.retryable)
       modelRequests.defer(new URL(url).origin, retryDelay(response, attempt))
     if (!failure.retryable || attempt === retries) throw failure.error
+    onProgress?.(
+      `模型请求遇到 HTTP ${response.status}，将在 ${Math.ceil(retryDelay(response, attempt) / 1000)} 秒后重试（第 ${attempt + 1}/${retries} 次）。`,
+    )
+    onPhase?.('等待自动重试')
     await waitForRetry(retryDelay(response, attempt), signal)
   }
   const reader = response.body?.getReader()
+  onPhase?.('读取模型服务响应')
   if (!reader) throw new Error('模型服务返回空响应')
   const chunks: Uint8Array[] = []
   let bytes = 0
-  while (true) {
-    const chunk = await reader.read()
-    if (chunk.done) break
-    bytes += chunk.value.byteLength
-    if (bytes > 512 * 1024) {
-      await reader.cancel()
-      throw new Error('模型单次输出超过 512 KiB 限制')
+  const abort = () => {
+    void reader.cancel().catch(() => {})
+  }
+  signal.addEventListener('abort', abort, { once: true })
+  try {
+    signal.throwIfAborted()
+    while (true) {
+      const chunk = await reader.read()
+      signal.throwIfAborted()
+      if (chunk.done) break
+      bytes += chunk.value.byteLength
+      if (bytes > 512 * 1024) {
+        throw new Error('模型单次输出超过 512 KiB 限制')
+      }
+      chunks.push(chunk.value)
     }
-    chunks.push(chunk.value)
+  } finally {
+    signal.removeEventListener('abort', abort)
+    await reader.cancel().catch(() => {})
   }
   try {
     const data = JSON.parse(Buffer.concat(chunks).toString('utf8'))
@@ -232,6 +313,7 @@ export const geminiProvider: ModelProvider = {
     instructions = agentInstructions,
     tools = true,
     retries,
+    onProgress,
   }) {
     const contents: unknown[] = [{ role: 'user', parts: [{ text: prompt }] }]
     const inputContent = (inputs: AgentInput[]) => ({
@@ -300,6 +382,7 @@ export const geminiProvider: ModelProvider = {
           requestBody(contents, maxOutputTokens),
           signal,
           retries,
+          onProgress,
         )
         const candidate = data.candidates?.[0]
         if (
@@ -356,6 +439,7 @@ export const openaiProvider: ModelProvider = {
     instructions = agentInstructions,
     tools = true,
     retries,
+    onProgress,
   }) {
     const history: unknown[] = [{ role: 'user', content: prompt }]
     const inputItems = (inputs: AgentInput[]) =>
@@ -410,6 +494,7 @@ export const openaiProvider: ModelProvider = {
           requestBody(history, maxOutputTokens),
           signal,
           retries,
+          onProgress,
         )
         if (data.status !== 'completed' || !Array.isArray(data.output))
           throw new Error('GPT 未完成输出，请缩小需求或检查输出预算')

@@ -157,6 +157,7 @@ beforeEach(async () => {
   vi.stubEnv('OPENAI_CONTEXT_WINDOW_TOKENS', '128000')
 })
 afterEach(async () => {
+  vi.useRealTimers()
   db().close()
   delete (globalThis as { pixloomDb?: unknown }).pixloomDb
   vi.restoreAllMocks()
@@ -632,6 +633,42 @@ describe('metering at the upstream request boundary', () => {
       withModelBilling(task, () => lost.next([], 100)),
     ).rejects.toThrow('lost')
     expect(usageSummary(user.id).reservedCredits).toBeGreaterThan(400)
+  })
+  it('retains unconfirmed credit reservations when a model request times out', async () => {
+    const { task, user } = await agentTask()
+    vi.useFakeTimers()
+    vi.stubEnv('OPENAI_API_KEY', 'test')
+    vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '1000')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal!.addEventListener('abort', () =>
+              reject(init.signal!.reason),
+            )
+          }),
+      ),
+    )
+    const session = openaiProvider.createSession({
+      model: 'test-model',
+      prompt: 'hello',
+      signal: new AbortController().signal,
+    })
+    const pending = expect(
+      withModelBilling(task, () => session.next([], 100)),
+    ).rejects.toThrow('超过 1 秒')
+    await vi.advanceTimersByTimeAsync(1000)
+    await pending
+    expect(usageSummary(user.id).usedCredits).toBe(
+      usageSummary(user.id).reservedCredits,
+    )
+    expect(usageSummary(user.id).reservedCredits).toBeGreaterThan(400)
+    expect(
+      db()
+        .prepare('SELECT status FROM usage_ledger WHERE taskId=?')
+        .all(task.id),
+    ).toMatchObject([{ status: 'reserved' }])
   })
 })
 

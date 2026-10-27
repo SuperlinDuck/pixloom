@@ -892,6 +892,33 @@ describe('conversation-first creation', () => {
 })
 
 describe('coding agent workspace loop', () => {
+  it('persists model waiting progress, reports timeout and ignores late progress after failure', async () => {
+    const project = newProject()
+    const task = queueAgent(project.id)
+    const draft = getDraft(project.id)
+    let report: ((message: string) => void) | undefined
+    const provider: ModelProvider = {
+      createSession: ({ onProgress }) => {
+        report = onProgress
+        return {
+          next: async () => {
+            onProgress?.('本轮模型请求已等待 30 秒，当前等待模型服务响应')
+            throw new Error('模型请求超过 180 秒未完成，已停止等待')
+          },
+        }
+      },
+    }
+    const result = await agentRun(task, fakeRuntime(), provider)
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('超过 180 秒')
+    expect(
+      result.events.some((event) => event.message.includes('等待 30 秒')),
+    ).toBe(true)
+    expect(getDraft(project.id)).toEqual(draft)
+    expect(getProject(project.id).versions).toHaveLength(0)
+    report?.('late progress')
+    expect(getTask(task.id).events).toEqual(result.events)
+  })
   it('exposes a loaded candidate during behavior checks without changing the draft or version', async () => {
     const project = newProject(),
       runtime = fakeRuntime()
