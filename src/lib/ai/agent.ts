@@ -80,11 +80,16 @@ export async function runCodingAgent(
   state.startedAt ??= Date.now()
   state.reservedOutputTokens ??= 0
   checkpointAgent(task, options.owner)
+  const onProgress = (message: string) => {
+    if (!options.signal.aborted && options.active())
+      addEvent(task, message, { type: 'model' })
+  }
   const createSession = () =>
     options.provider.createSession({
       model: state.model,
       signal: options.signal,
       prompt: codingAgentPrompt(task),
+      onProgress,
     })
   let session = createSession()
   let context = new AgentContextHistory()
@@ -422,6 +427,7 @@ export async function runCodingAgent(
           signal: options.signal,
           instructions: summaryInstructions,
           tools: false,
+          onProgress,
           prompt: context.summaryPrompt(
             codingAgentPrompt(task),
             inputs,

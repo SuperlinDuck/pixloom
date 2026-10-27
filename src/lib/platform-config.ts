@@ -52,6 +52,7 @@ export function assertProductionConfig() {
   limit('PIXLOOM_MAX_QUEUED_TASKS', 30)
   limit('PIXLOOM_RUNTIME_IDLE_SECONDS', 300, 0)
   limit('PIXLOOM_MAX_RUNTIME_CONTAINERS', 3)
+  limit('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', 180000, 1000, 600000)
   for (const [name, fallback] of [
     ['PIXLOOM_WORKER_CONCURRENCY', 3],
     ['PIXLOOM_BUILD_CONCURRENCY', 1],

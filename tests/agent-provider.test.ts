@@ -361,6 +361,167 @@ it.each([
 )
 
 describe('model request retries', () => {
+  it.each([geminiProvider, openaiProvider])(
+    'bounds a stalled request independently of the task deadline',
+    async (provider) => {
+      vi.useFakeTimers()
+      vi.stubEnv('GEMINI_API_KEY', 'fake')
+      vi.stubEnv('OPENAI_API_KEY', 'fake')
+      vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '1000')
+      const signals: AbortSignal[] = []
+      const fetcher = vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            const signal = init.signal!
+            signals.push(signal)
+            signal.addEventListener('abort', () => reject(signal.reason))
+          }),
+      )
+      vi.stubGlobal('fetch', fetcher)
+      const parent = new AbortController()
+      const pending = expect(
+        provider
+          .createSession({ model: 'test', prompt: '', signal: parent.signal })
+          .next([], 500),
+      ).rejects.toThrow('超过 1 秒')
+      await vi.advanceTimersByTimeAsync(1000)
+      await pending
+      expect(signals[0].aborted).toBe(true)
+      expect(parent.signal.aborted).toBe(false)
+      expect(fetcher).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
+
+  it.each([200, 429])(
+    'times out HTTP %i response bodies that stop sending data',
+    async (status) => {
+      vi.useFakeTimers()
+      vi.stubEnv('OPENAI_API_KEY', 'fake')
+      vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '1000')
+      const cancelled = vi.fn()
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{'))
+        },
+        cancel: cancelled,
+      })
+      const fetcher = vi.fn(async () => new Response(stream, { status }))
+      vi.stubGlobal('fetch', fetcher)
+      const pending = expect(
+        openaiProvider
+          .createSession({
+            model: 'test',
+            prompt: '',
+            signal: new AbortController().signal,
+          })
+          .next([], 500),
+      ).rejects.toThrow('超过 1 秒')
+      await vi.advanceTimersByTimeAsync(1000)
+      await pending
+      expect(cancelled).toHaveBeenCalledOnce()
+      expect(fetcher).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
+    },
+  )
+
+  it('bounds waiting for model capacity without starting another HTTP request', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('OPENAI_API_KEY', 'fake')
+    vi.stubEnv('PIXLOOM_MODEL_CONCURRENCY', '1')
+    vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '1000')
+    let finish!: () => void
+    const occupied = modelRequests.run(
+      'https://api.openai.com/v1',
+      new AbortController().signal,
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    const fetcher = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    const pending = expect(
+      openaiProvider
+        .createSession({
+          model: 'test',
+          prompt: '',
+          signal: new AbortController().signal,
+        })
+        .next([], 500),
+    ).rejects.toThrow('超过 1 秒')
+    await vi.advanceTimersByTimeAsync(1000)
+    await pending
+    expect(fetcher).not.toHaveBeenCalled()
+    finish()
+    await occupied
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('reports slow responses and retries without exposing upstream content', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('OPENAI_API_KEY', 'fake')
+    vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '60000')
+    const onProgress = vi.fn()
+    let finish!: (value: Response) => void
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('secret', { status: 503 }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve
+          }),
+      )
+    vi.stubGlobal('fetch', fetcher)
+    const pending = openaiProvider
+      .createSession({
+        model: 'test',
+        prompt: '',
+        signal: new AbortController().signal,
+        onProgress,
+      })
+      .next([], 500)
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(onProgress.mock.calls.map((call) => call[0]).join('\n')).toContain(
+      'HTTP 503',
+    )
+    expect(onProgress.mock.calls.map((call) => call[0]).join('\n')).toContain(
+      '等待 30 秒',
+    )
+    expect(
+      onProgress.mock.calls.map((call) => call[0]).join('\n'),
+    ).not.toContain('secret')
+    finish(response({ status: 'completed', output: [] }))
+    await pending
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('ends an excessive Retry-After wait at the model call deadline', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('OPENAI_API_KEY', 'fake')
+    vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '1000')
+    const fetcher = vi.fn(
+      async () =>
+        new Response('', { status: 429, headers: { 'Retry-After': '120' } }),
+    )
+    vi.stubGlobal('fetch', fetcher)
+    const pending = expect(
+      openaiProvider
+        .createSession({
+          model: 'test',
+          prompt: '',
+          signal: new AbortController().signal,
+        })
+        .next([], 500),
+    ).rejects.toThrow('超过 1 秒')
+    await vi.advanceTimersByTimeAsync(1000)
+    await pending
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it.each([
     ['OpenAI', openaiProvider, { status: 'completed', output: [] }],
     [
