@@ -66,22 +66,21 @@ import {
   type WorkspaceTab,
 } from '@/lib/workspace-route'
 import type { DockerHealth } from '@/lib/runtime/types'
+import { readWorkspaceJson } from '@/lib/workspace-polling'
+import { useWorkspacePolling } from './use-workspace-polling'
 
 async function api<T>(
   url: string,
   body?: unknown,
   method = 'POST',
+  signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch(
-    url,
-    body === undefined
-      ? { cache: 'no-store' }
-      : {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-  )
+  if (body === undefined) return readWorkspaceJson<T>(url, signal)
+  const response = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
   const data = await response.json()
   if (!response.ok) {
     if (response.status === 401)
@@ -370,30 +369,20 @@ function WorkspaceSession({
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [menu])
-  useEffect(() => {
-    if (!canAccess) return
-    let alive = true
-    const refresh = async () => {
-      try {
-        const [list, system] = await Promise.all([
-          api<Project[]>('/api/projects'),
-          api<SystemStatus>('/api/status'),
-        ])
-        if (alive) {
-          setProjects(list)
-          setStatus(system)
-        }
-      } catch (e) {
-        if (alive) setError((e as Error).message)
-      }
-    }
-    void refresh()
-    const timer = setInterval(refresh, 3000)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-  }, [canAccess])
+  useWorkspacePolling(
+    canAccess ? 'overview' : null,
+    async (signal) => {
+      const [list, system] = await Promise.all([
+        api<Project[]>('/api/projects', undefined, undefined, signal),
+        api<SystemStatus>('/api/status', undefined, undefined, signal),
+      ])
+      if (signal.aborted) return
+      setProjects(list)
+      setStatus(system)
+    },
+    status?.workerOnline ? 60000 : 15000,
+    (error) => setError(error.message),
+  )
   useEffect(() => {
     setDetail(null)
     setDraft(null)
@@ -411,36 +400,43 @@ function WorkspaceSession({
     setPrompt('')
     setRenaming(false)
     followConversation.current = true
-    if (!projectId || !canAccess) return
-    let alive = true
-    const refresh = async () => {
-      try {
-        const [data, releases] = await Promise.all([
-          api<ProjectDetail>(`/api/projects/${projectId}`),
-          api<Publication>(`/api/projects/${projectId}/releases`),
-        ])
-        if (alive) {
-          setDetail(data)
-          setPublication(releases)
-        }
-      } catch (e) {
-        if (alive) setError((e as Error).message)
-      }
-    }
-    void refresh()
-    const timer = setInterval(refresh, 1400)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
   }, [projectId, canAccess])
+  useWorkspacePolling(
+    canAccess ? projectId : null,
+    async (signal) => {
+      const data = await api<ProjectDetail>(base, undefined, undefined, signal)
+      if (!signal.aborted) setDetail(data)
+    },
+    active ? 5000 : 30000,
+    (error) => setError(error.message),
+  )
+  useWorkspacePolling(
+    canAccess && projectId ? `${projectId}/releases` : null,
+    async (signal) => {
+      const releases = await api<Publication>(
+        `${base}/releases`,
+        undefined,
+        undefined,
+        signal,
+      )
+      if (!signal.aborted) setPublication(releases)
+    },
+    (active && ['publish', 'unpublish'].includes(active.kind)) ||
+      publication?.releases.some((release) =>
+        ['queued', 'staging', 'verifying'].includes(release.status),
+      )
+      ? 5000
+      : 60000,
+    (error) => setError(error.message),
+  )
   useEffect(() => {
     if (!detail || detail.project.id !== projectId) return
     const state = ref.current
     if (state.draft?.revision === detail.draft.revision) return
     if (state.draft && !equal(state.files, state.draft.files)) return
     let alive = true
-    void api<Draft>(`${base}/files`)
+    const controller = new AbortController()
+    void api<Draft>(`${base}/files`, undefined, undefined, controller.signal)
       .then((data) => {
         if (!alive || ref.current.projectId !== data.projectId) return
         const state = ref.current
@@ -453,14 +449,19 @@ function WorkspaceSession({
       })
     return () => {
       alive = false
+      controller.abort()
     }
   }, [base, projectId, detail?.draft.revision])
   useEffect(() => {
     setCurrent(null)
     if (!detail?.project.currentVersionId) return
     let alive = true
+    const controller = new AbortController()
     void api<VersionDetail>(
       `${base}/versions/${detail.project.currentVersionId}`,
+      undefined,
+      undefined,
+      controller.signal,
     )
       .then((data) => {
         if (alive) setCurrent(data)
@@ -470,6 +471,7 @@ function WorkspaceSession({
       })
     return () => {
       alive = false
+      controller.abort()
     }
   }, [
     base,
@@ -482,13 +484,22 @@ function WorkspaceSession({
     setParent(null)
     if (!selected || !projectId || !canAccess) return
     let alive = true
-    void api<VersionDetail>(`${base}/versions/${selected}`)
+    const controller = new AbortController()
+    void api<VersionDetail>(
+      `${base}/versions/${selected}`,
+      undefined,
+      undefined,
+      controller.signal,
+    )
       .then(async (data) => {
         if (!alive) return
         setHistorical(data)
         if (data.parentVersionId) {
           const p = await api<VersionDetail>(
             `${base}/versions/${data.parentVersionId}`,
+            undefined,
+            undefined,
+            controller.signal,
           )
           if (alive) setParent(p)
         }
@@ -498,6 +509,7 @@ function WorkspaceSession({
       })
     return () => {
       alive = false
+      controller.abort()
     }
   }, [
     base,
@@ -509,7 +521,13 @@ function WorkspaceSession({
   useEffect(() => {
     if (!projectId || !canAccess || tab !== 'runtime') return
     let alive = true
-    void api<Environment>(`${base}/runtime?refresh=1`)
+    const controller = new AbortController()
+    void api<Environment>(
+      `${base}/runtime?refresh=1`,
+      undefined,
+      undefined,
+      controller.signal,
+    )
       .then((data) => {
         if (alive) setEnvironment(data)
       })
@@ -518,18 +536,26 @@ function WorkspaceSession({
       })
     return () => {
       alive = false
+      controller.abort()
     }
   }, [base, projectId, canAccess, tab])
   useEffect(() => {
     if (!projectId || !canAccess) return
     let alive = true
-    void api<Backup[]>(`${base}/draft-backups`)
+    const controller = new AbortController()
+    void api<Backup[]>(
+      `${base}/draft-backups`,
+      undefined,
+      undefined,
+      controller.signal,
+    )
       .then((data) => {
         if (alive) setBackups(data)
       })
       .catch(() => {})
     return () => {
       alive = false
+      controller.abort()
     }
   }, [base, projectId, detail?.draft.revision])
   useEffect(() => {
