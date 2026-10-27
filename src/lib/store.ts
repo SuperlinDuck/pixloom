@@ -245,24 +245,31 @@ export function getRuntime(id: string): RuntimeInfo | null {
   )
 }
 export function getProject(id: string): ProjectDetail {
-  const project = projectById(id),
-    { files: _files, ...draft } = getDraft(id)
-  const queue = taskQueueInformation()
+  const project = projectById(id)
+  // Polling needs metadata and conversation events, never source snapshots.
+  const draft = db()
+    .prepare(
+      'SELECT projectId,baseVersionId,revision,hash,updatedAt FROM workspace_drafts WHERE projectId=?',
+    )
+    .get(id) as ProjectDetail['draft']
   const tasks = db()
     .prepare(
-      'SELECT * FROM tasks WHERE projectId=? ORDER BY createdAt DESC,rowid DESC LIMIT 30',
+      'SELECT id,projectId,kind,status,baseVersionId,expectedDraftRevision,attemptId,targetVersionId,resultVersionId,summary,agent,events,error,createdAt,updatedAt FROM tasks WHERE projectId=? ORDER BY createdAt DESC,rowid DESC LIMIT 30',
     )
     .all(id)
-    .map(decodeTask)
-    .map(({ candidateFiles: _files, ...task }) => ({
-      ...task,
-      candidatePreview: candidatePreview(task),
-      ...(task.status === 'queued' ? { queue: queue.get(task.id) } : {}),
-    }))
+    .map(decodeTaskSummary)
+  const queue = tasks.some((task) => task.status === 'queued')
+    ? taskQueueInformation()
+    : new Map()
+  const summaries = tasks.map((task) => ({
+    ...task,
+    candidatePreview: candidatePreview(task),
+    ...(task.status === 'queued' ? { queue: queue.get(task.id) } : {}),
+  }))
   return {
     project,
     draft,
-    tasks,
+    tasks: summaries,
     versions: versionSummaries(id),
     runtime: getRuntime(id),
   }
@@ -460,17 +467,22 @@ function backupDraft(draft: Draft) {
       now(),
     )
 }
-function decodeTask(row: unknown): Task {
-  const r = row as Omit<Task, 'candidateFiles' | 'events' | 'agent'> & {
-    candidateFiles: string
+function decodeTaskSummary(row: unknown): TaskSummary {
+  const r = row as Omit<TaskSummary, 'events' | 'agent'> & {
     events: string
     agent: string | null
   }
   return {
     ...r,
-    candidateFiles: JSON.parse(r.candidateFiles),
     events: JSON.parse(r.events),
     agent: r.agent ? JSON.parse(r.agent) : null,
+  }
+}
+function decodeTask(row: unknown): Task {
+  const { candidateFiles, ...summary } = row as { candidateFiles: string }
+  return {
+    ...decodeTaskSummary(summary),
+    candidateFiles: JSON.parse(candidateFiles),
   }
 }
 export function getTask(id: string) {

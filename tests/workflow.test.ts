@@ -404,6 +404,26 @@ describe('multi-file workspace lifecycle', () => {
 })
 
 describe('boundaries and APIs', () => {
+  it('reads polling metadata without loading or parsing source snapshot bodies', async () => {
+    const { project, version } = await initialize()
+    // Snapshot decoding belongs to source/execution endpoints. Polling must not
+    // touch these potentially large JSON bodies, even for completed tasks.
+    db()
+      .prepare('UPDATE workspace_drafts SET files=? WHERE projectId=?')
+      .run('not JSON', project.id)
+    db()
+      .prepare('UPDATE tasks SET candidateFiles=? WHERE projectId=?')
+      .run('not JSON', project.id)
+    const detail = getProject(project.id)
+    expect(detail.draft.projectId).toBe(project.id)
+    expect(detail.draft).not.toHaveProperty('files')
+    expect(detail.tasks[0]).toMatchObject({
+      status: 'completed',
+      resultVersionId: version.id,
+    })
+    expect(detail.tasks[0]).not.toHaveProperty('candidateFiles')
+    expect(detail.tasks[0].events.length).toBeGreaterThan(0)
+  })
   it('does not return snapshot bodies from polling and validates cross-project references', async () => {
     const { project, version } = await initialize(),
       other = newProject()
