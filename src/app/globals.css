@@ -3479,12 +3479,6 @@ h1 {
   text-decoration: none;
   white-space: nowrap;
 }
-.release-item button {
-  font-size: 12px;
-  text-align: left;
-  text-decoration: underline;
-  width: fit-content;
-}
 .publication-controls {
   display: flex;
   flex-wrap: wrap;
@@ -3560,21 +3554,81 @@ h1 {
   border-top: 1px solid #e4e4e7;
   padding: 16px 0;
   display: grid;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px 16px;
   font-size: 13px;
 }
-.release-item > div {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
+.release-summary {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
 }
-.release-item time,
-.release-item span {
+.release-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.release-item time {
   font-size: 12px;
   color: #71717a;
 }
+.release-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid #e4e4e7;
+  border-radius: 999px;
+  background: #f4f4f5;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.release-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.release-status-live {
+  border-color: #cce7d7;
+  background: #eef8f1;
+  color: #35724c;
+}
+.release-status-pending {
+  border-color: #ecdcb6;
+  background: #fdf7e9;
+  color: #946b21;
+}
+.release-status-failed {
+  border-color: #f0d4cb;
+  background: #fcf1ed;
+  color: #a65440;
+}
+.release-rollback {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid #d4d4d8;
+  border-radius: 7px;
+  background: white;
+  color: #52525b;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.release-rollback:hover:not(:disabled) {
+  border-color: #a1a1aa;
+  background: #f4f4f5;
+}
 .release-item p {
+  grid-column: 1 / -1;
   color: #b26755;
   overflow-wrap: anywhere;
 }
