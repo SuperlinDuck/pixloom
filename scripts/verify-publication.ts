@@ -58,10 +58,7 @@ async function main() {
       "import React, { useState } from 'react'",
       "import React, { useState, lazy, Suspense } from 'react'\nconst Lazy = lazy(() => import('./Lazy.jsx'))",
     )
-    .replace(
-      '<footer>',
-      '<Suspense fallback={null}><Lazy /></Suspense><footer>',
-    )
+    .replace('</main>', '<Suspense fallback={null}><Lazy /></Suspense></main>')
   files.push({
     path: 'src/Lazy.jsx',
     content:

@@ -32,8 +32,8 @@ async function main() {
       "import React, { useState, lazy, Suspense } from 'react'\nimport icon from './delivery.svg'\nconst Lazy = lazy(() => import('./Delivery.jsx'))",
     )
     .replace(
-      '<footer>',
-      '<img alt="交付资源" src={icon} /><Suspense fallback={null}><Lazy /></Suspense><footer>',
+      '</main>',
+      '<img alt="交付资源" src={icon} /><Suspense fallback={null}><Lazy /></Suspense></main>',
     )
   files.push(
     {
