@@ -48,6 +48,7 @@ import type {
   Publication,
 } from '@/lib/types'
 import { isActive } from '@/lib/types'
+import { isInternalModelMessage } from '@/lib/task-events'
 import {
   normalizePublicationPrefix,
   publicationPrefixError,
@@ -169,7 +170,7 @@ function taskReply(task: TaskSummary) {
       .reverse()
       .find(
         (event) =>
-          event.type === 'model' && !event.message.startsWith('模型第 '),
+          event.type === 'model' && !isInternalModelMessage(event.message),
       )?.message ||
     '修改已完成，预览已更新。'
   )

@@ -117,6 +117,57 @@ describe('task progress presentation', () => {
     expect(html).toContain('工具 future_tool · 额外信息')
   })
 
+  it('hides repeated request waiting diagnostics and keeps the latest useful action', () => {
+    for (const type of ['model', undefined] as const) {
+      const html = render([
+        event('工具 read_file · src/App.jsx', 'tool', 'read_file'),
+        event(
+          '本轮模型请求已等待 30 秒，当前等待模型服务响应；本轮最多等待 180 秒。',
+          type,
+        ),
+        event('工具 read_file · src/styles.css', 'tool', 'read_file'),
+        event(
+          '本轮模型请求已等待 60 秒，当前等待模型服务响应；本轮最多等待 180 秒。',
+          type,
+        ),
+      ])
+      expect(html).not.toContain('本轮模型请求')
+      expect(html).toContain('读取文件 src/App.jsx')
+      expect(html.split('class="task-latest-progress"')[1]).toContain(
+        '读取文件 src/styles.css',
+      )
+    }
+  })
+
+  it.each([
+    '等待模型请求资源或限流冷却',
+    '等待模型限流冷却',
+    '等待自动重试',
+    '读取模型服务错误响应',
+    '读取模型服务响应',
+  ])('hides the waiting notice during %s', (phase) => {
+    const html = render([
+      event(
+        `本轮模型请求已等待 30 秒，当前${phase}；本轮最多等待 180.5 秒。`,
+        'model',
+      ),
+    ])
+    expect(html).not.toContain('本轮模型请求')
+    expect(html).not.toContain('task-latest-progress')
+  })
+
+  it('preserves actual model request failures', () => {
+    const html = render(
+      [
+        event('模型请求超时，请稍后重试。', 'model'),
+        event('模型请求失败（HTTP 503），模型服务暂时不可用，请稍后重试'),
+      ],
+      'failed',
+    )
+    expect(html).toContain('模型请求超时，请稍后重试。')
+    expect(html).toContain('模型请求失败（HTTP 503）')
+  })
+
   it('preserves complete multiline logs behind an expandable action row', () => {
     const html = render([event('构建失败\nsrc/App.jsx:12 缺少右括号', 'build')])
     expect(html).toContain('<details class="task-event-details">')
@@ -228,6 +279,10 @@ describe('task progress presentation', () => {
         event('工具 build', 'tool', 'build'),
         event('旧任务的完成回复。', 'model'),
         event('模型第 3/100 步 · gemini-3.5-flash', 'model'),
+        event(
+          '本轮模型请求已等待 30 秒，当前等待模型服务响应；本轮最多等待 180 秒。',
+          'model',
+        ),
       ],
       'completed',
       {
