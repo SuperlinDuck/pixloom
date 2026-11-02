@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { geminiProvider, openaiProvider } from '../src/lib/ai/provider'
+import {
+  geminiProvider,
+  openaiProvider,
+  ModelRequestTimeoutError,
+} from '../src/lib/ai/provider'
 import { requireModel } from '../src/lib/ai/config'
 import { modelRequests } from '../src/lib/ai/request-limiter'
 import type { AgentInput } from '../src/lib/ai/tools'
@@ -361,6 +365,39 @@ it.each([
 )
 
 describe('model request retries', () => {
+  it('uses a typed 30-second deadline by default without aborting the parent task', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('GEMINI_API_KEY', 'fake')
+    vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '')
+    const parent = new AbortController()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () =>
+              reject(init.signal.reason),
+            )
+          }),
+      ),
+    )
+    const result = geminiProvider
+      .createSession({
+        model: 'gemini-3.8-flash',
+        prompt: '',
+        signal: parent.signal,
+      })
+      .next([], 500)
+      .catch((error) => error)
+    await vi.advanceTimersByTimeAsync(29999)
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(await result).toBeInstanceOf(ModelRequestTimeoutError)
+    expect((await result).message).toContain('超过 30 秒')
+    expect(parent.signal.aborted).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it.each([geminiProvider, openaiProvider])(
     'bounds a stalled request independently of the task deadline',
     async (provider) => {

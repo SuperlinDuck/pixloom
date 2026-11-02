@@ -40,6 +40,15 @@ export type ModelProvider = {
 
 const MAX_RETRIES = 3
 
+export class ModelRequestTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(
+      `模型请求超过 ${timeoutMs / 1000} 秒未完成，已停止等待；请稍后重试或检查模型服务。`,
+    )
+    this.name = 'ModelRequestTimeoutError'
+  }
+}
+
 function waitForRetry(delay: number, signal: AbortSignal) {
   signal.throwIfAborted()
   return new Promise<void>((resolve, reject) => {
@@ -132,7 +141,7 @@ async function post(
 ) {
   const timeoutMs = limit(
     'PIXLOOM_MODEL_REQUEST_TIMEOUT_MS',
-    180000,
+    30000,
     1000,
     600000,
   )
@@ -140,12 +149,7 @@ async function post(
   const requestSignal = AbortSignal.any([signal, controller.signal])
   let phase = '等待模型请求资源或限流冷却'
   const timeout = setTimeout(
-    () =>
-      controller.abort(
-        new Error(
-          `模型请求超过 ${timeoutMs / 1000} 秒未完成，已停止等待；请稍后重试或检查模型服务。`,
-        ),
-      ),
+    () => controller.abort(new ModelRequestTimeoutError(timeoutMs)),
     timeoutMs,
   )
   const slow = onProgress

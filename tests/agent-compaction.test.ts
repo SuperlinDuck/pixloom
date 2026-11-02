@@ -45,6 +45,7 @@ describe('context compression material', () => {
   it('reserves output room and provider headroom, with an explicit override for other models', () => {
     vi.stubEnv('GEMINI_CONTEXT_WINDOW_TOKENS', '')
     expect(contextInputBudget('gemini', 'gemini-3.8-flash', 24000)).toBe(762432)
+    expect(contextInputBudget('gemini', 'gemini-3.5-flash', 24000)).toBe(762432)
     vi.stubEnv('OPENAI_CONTEXT_WINDOW_TOKENS', '')
     expect(contextInputBudget('openai', 'gpt-4.1-mini', 24000)).toBe(761682)
     vi.stubEnv('GEMINI_CONTEXT_WINDOW_TOKENS', '32768')

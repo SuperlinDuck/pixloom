@@ -17,7 +17,11 @@ import { enableCloud, inspectSchema } from '../cloud/backend'
 import { addEvent as storeAddEvent, checkpointAgent, getDraft } from '../store'
 import { applyOperations, snapshot } from '../workspace-files'
 import type { BuildAsset, Task } from '../types'
-import type { ModelProvider } from './provider'
+import {
+  ModelRequestTimeoutError,
+  type ModelProvider,
+  type ModelTurn,
+} from './provider'
 import { agentTools, type AgentInput, type ToolCall } from './tools'
 import {
   readSource,
@@ -85,11 +89,11 @@ export async function runCodingAgent(
     if (!options.signal.aborted && options.active())
       addEvent(task, message, { type: 'model' })
   }
-  const createSession = () =>
+  const createSession = (prompt = codingAgentPrompt(task)) =>
     options.provider.createSession({
       model: state.model,
       signal: options.signal,
-      prompt: codingAgentPrompt(task),
+      prompt,
       onProgress,
     })
   let session = createSession()
@@ -478,9 +482,49 @@ export async function runCodingAgent(
       `模型第 ${state.steps}/${AGENT_LIMITS.steps} 步 · ${state.model}${compact ? ' · 自动压缩上下文' : ''}`,
       { type: 'model' },
     )
-    const turn = await withModelBilling(task, () =>
-      requestSession.next(compact ? [] : inputs, allocation),
-    )
+    let turn: ModelTurn
+    try {
+      turn = await withModelBilling(task, () =>
+        requestSession.next(compact ? [] : inputs, allocation),
+      )
+    } catch (error) {
+      if (
+        !(error instanceof ModelRequestTimeoutError) ||
+        options.signal.aborted ||
+        state.provider !== 'gemini' ||
+        state.model !== 'gemini-3.8-flash'
+      )
+        throw error
+      check()
+      // Persist the choice before any fallback call, including its billing.
+      // Unknown usage from the timed-out request keeps its ledger reservation.
+      state.model = 'gemini-3.5-flash'
+      state.reservedOutputTokens -= allocation
+      checkpointAgent(task, options.owner)
+      // Start a fresh native session; never replay another model's signatures
+      // or orphaned tool responses. Carry only public development records.
+      session = createSession(
+        context.continuationPrompt(
+          codingAgentPrompt(task),
+          inputs,
+          contextInputBudget(
+            state.provider,
+            state.model,
+            AGENT_LIMITS.outputTokensPerCall,
+          ),
+        ),
+      )
+      context = new AgentContextHistory()
+      inputs = []
+      addEvent(
+        task,
+        'Gemini 3.8 Flash 请求超时，本轮对话已切换至 Gemini 3.5 Flash 继续处理。',
+        {
+          type: 'model',
+        },
+      )
+      continue
+    }
     check()
     state.reservedOutputTokens -= allocation
     state.usage.inputTokens += turn.usage.inputTokens
