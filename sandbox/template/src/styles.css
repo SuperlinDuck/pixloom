@@ -25,36 +25,14 @@ button:focus-visible {
   margin: auto;
   padding: 34px;
 }
-header,
-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 10px;
-  color: #89967d;
-  letter-spacing: 1px;
-}
-header {
-  padding-bottom: 24px;
-  border-bottom: 1px solid #dedfd3;
-}
 section {
   padding: 68px 0;
-}
-.eyebrow {
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: #98a487;
 }
 h1 {
   font-size: clamp(30px, 5vw, 48px);
   font-weight: 500;
   letter-spacing: -1px;
   line-height: 1.5;
-}
-h1 em {
-  color: #a3ac92;
-  font-style: normal;
 }
 .description {
   font-size: 12px;
@@ -88,19 +66,11 @@ output {
   background: none;
   font-size: 11px;
 }
-footer {
-  padding-top: 22px;
-  border-top: 1px solid #dedfd3;
-  font-size: 8px;
-}
 @media (max-width: 450px) {
   .workspace {
     padding: 23px;
   }
   section {
     padding: 36px 0;
-  }
-  footer {
-    flex-wrap: wrap;
   }
 }
