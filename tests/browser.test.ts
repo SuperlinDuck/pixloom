@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { verifyBrowser } from '../src/lib/browser'
 import { browserTestSchema, type BrowserStep } from '../src/lib/browser-schema'
 import type { BuildAsset } from '../src/lib/types'
+import { storageClientSource } from '../src/lib/storage-client'
+import { chromium } from 'playwright'
+import { existsSync } from 'node:fs'
+import { publishedHeaders } from '../src/lib/publication/gateway'
 
 const asset = (path: string, source: string): BuildAsset => ({
   path,
@@ -27,6 +31,35 @@ const run = (
 ) => verifyBrowser('candidate', assets, steps, signal)
 
 describe('browser test input boundaries', () => {
+  it('allows scoped reload/reopen and four direction keys, with exact assertions', () => {
+    for (const action of ['reload', 'reopen'] as const) {
+      expect(
+        browserTestSchema.safeParse({
+          steps: [
+            step(action, '#root'),
+            step('assert_text_equals', 'output', '0'),
+          ],
+        }).success,
+      ).toBe(true)
+      expect(
+        browserTestSchema.safeParse({
+          steps: [
+            step(action, 'https://example.com'),
+            step('assert_visible', '#root'),
+          ],
+        }).success,
+      ).toBe(false)
+    }
+    for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+      expect(
+        browserTestSchema.safeParse({
+          steps: [
+            step('press', 'button', key),
+            step('assert_visible', '#root'),
+          ],
+        }).success,
+      ).toBe(true)
+  })
   it('requires an assertion, caps actions and rejects JavaScript and unknown fields', () => {
     expect(
       browserTestSchema.safeParse({ steps: [step('click', 'button')] }).success,
@@ -59,6 +92,126 @@ describe('browser test input boundaries', () => {
 describe.skipIf(process.env.PIXLOOM_BROWSER_TESTS !== '1')(
   'real sandboxed Chromium verification',
   () => {
+    it('uses native localStorage under published headers and retains data on refresh and reopening', async () => {
+      const browser = await chromium.launch({
+        chromiumSandbox: true,
+        channel:
+          process.env.PIXLOOM_BROWSER_CHANNEL === 'chrome' ||
+          !existsSync(chromium.executablePath())
+            ? 'chrome'
+            : undefined,
+        env: Object.fromEntries(
+          ['PATH', 'HOME', 'TMPDIR', 'SystemRoot'].flatMap((key) =>
+            process.env[key] ? [[key, process.env[key]!]] : [],
+          ),
+        ),
+      })
+      try {
+        const context = await browser.newContext()
+        const files: Record<string, { type: string; body: string }> = {
+          '/': {
+            type: 'text/html',
+            body: '<output>加载</output><button>保存</button><script type="module" src="/app.js"></script>',
+          },
+          '/storage.js': {
+            type: 'application/javascript',
+            body: storageClientSource.replaceAll(
+              'import.meta.env.BASE_URL',
+              '"/"',
+            ),
+          },
+          '/app.js': {
+            type: 'application/javascript',
+            body: `import {storage} from './storage.js';let count=await storage.get('count',0);const output=document.querySelector('output');output.textContent=count;document.querySelector('button').onclick=async()=>{await storage.set('count',count+1);output.textContent=++count}`,
+          },
+        }
+        await context.route('**/*', (route) => {
+          const url = new URL(route.request().url())
+          const file =
+            url.origin === 'http://127.0.0.1:4173'
+              ? files[url.pathname]
+              : undefined
+          return file
+            ? route.fulfill({
+                headers: publishedHeaders(file.type),
+                body: file.body,
+              })
+            : route.abort()
+        })
+        const page = await context.newPage()
+        await page.goto('http://127.0.0.1:4173/')
+        await page.locator('output:text-is("0")').waitFor()
+        await page.locator('button').click()
+        await page.locator('output:text-is("1")').waitFor()
+        expect(await page.evaluate(() => localStorage.getItem('count'))).toBe(
+          '1',
+        )
+        await page.reload()
+        await page.locator('output:text-is("1")').waitFor()
+        await page.close()
+        const reopened = await context.newPage()
+        await reopened.goto('http://127.0.0.1:4173/')
+        await reopened.locator('output:text-is("1")').waitFor()
+      } finally {
+        await browser.close()
+      }
+    }, 30000)
+    it('retains a completed todo across reload/reopen and retains deletion with opaque isolation', async () => {
+      const assets = [
+        ...source(
+          '<input id="title"><button id="add">添加</button><ul></ul><output id="status">加载中</output>',
+          `import { storage } from '/api/previews/candidate/storage.js';
+          let todos=await storage.get('todos',[]);
+          const status=document.querySelector('#status');
+          const save=async()=>{await storage.set('todos',todos);render();status.textContent='已保存'};
+          function render(){document.querySelector('ul').replaceChildren();for(const todo of todos){const li=document.createElement('li');li.textContent=todo.title;const check=document.createElement('input');check.type='checkbox';check.checked=todo.completed;check.onchange=async()=>{todo.completed=check.checked;await save()};const button=document.createElement('button');button.textContent='删除';button.onclick=async()=>{todos=[];await save()};li.append(check,button);document.querySelector('ul').append(li)}}
+          document.querySelector('#add').onclick=async()=>{todos.push({title:document.querySelector('#title').value,completed:false});await save()};
+          render();status.textContent='已读取';`,
+        ),
+        asset(
+          'storage.js',
+          storageClientSource.replaceAll(
+            'import.meta.env.BASE_URL',
+            JSON.stringify('/api/previews/candidate/'),
+          ),
+        ),
+      ]
+      const report = await run(assets, [
+        step('assert_text_equals', '#status', '已读取'),
+        step('fill', '#title', '补测保留任务A'),
+        step('click', '#add'),
+        step('assert_text', 'li', '补测保留任务A'),
+        step('check', 'li input'),
+        step('assert_checked', 'li input', 'true'),
+        step('reload', '#root'),
+        step('assert_text', 'li', '补测保留任务A'),
+        step('assert_checked', 'li input', 'true'),
+        step('reopen', '#root'),
+        step('assert_text', 'li', '补测保留任务A'),
+        step('assert_checked', 'li input', 'true'),
+        step('click', 'li button'),
+        step('assert_count', 'li', '0'),
+        step('reopen', '#root'),
+        step('assert_text_equals', '#status', '已读取'),
+        step('assert_count', 'li', '0'),
+      ])
+      expect(report, report.output).toMatchObject({
+        ok: true,
+        completedSteps: 17,
+      })
+    }, 30000)
+
+    it('does not mistake substring matches for exact results, and classifies selector failures as unverified', async () => {
+      const assertion = await run(source('<output>10</output>'), [
+        step('assert_text_equals', 'output', '0'),
+      ])
+      expect(assertion).toMatchObject({ ok: false, failureKind: 'application' })
+      const selector = await run(
+        source('<button>一</button><button>二</button>'),
+        [step('click', 'button'), step('assert_visible', '#root')],
+      )
+      expect(selector).toMatchObject({ ok: false, failureKind: 'test' })
+    }, 30000)
     it('announces a loaded candidate while the behavior result is still pending', async () => {
       const onLoaded = vi.fn()
       const report = await verifyBrowser(

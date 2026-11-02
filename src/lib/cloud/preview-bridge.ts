@@ -3,6 +3,7 @@ export function installPreviewAuthBridge(
   frame: HTMLIFrameElement,
   artifactId: string,
   resourceBase = `/api/previews/${artifactId}/`,
+  storageNonce?: string,
 ) {
   let active = true
   let channel: BroadcastChannel | undefined
@@ -117,6 +118,7 @@ export function installPreviewAuthBridge(
   window.addEventListener('message', listener)
   const source = new URL(`${resourceBase}index.html`, location.href)
   source.searchParams.set('__pixloom_auth', nonce)
+  if (storageNonce) source.searchParams.set('__pixloom_storage', storageNonce)
   frame.src = source.href
   return () => {
     active = false

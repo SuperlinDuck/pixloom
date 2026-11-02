@@ -7,9 +7,12 @@ export const browserStepSchema = z
       'fill',
       'select',
       'press',
+      'reload',
+      'reopen',
       'check',
       'uncheck',
       'assert_text',
+      'assert_text_equals',
       'assert_count',
       'assert_visible',
       'assert_hidden',
@@ -22,10 +25,25 @@ export const browserStepSchema = z
   .strict()
   .superRefine((step, ctx) => {
     if (
+      ['reload', 'reopen'].includes(step.action) &&
+      (step.selector !== '#root' || step.value !== '')
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: '重新加载仅支持当前预览：selector="#root", value=""',
+      })
+    if (
       step.action === 'press' &&
-      !['Enter', 'Escape', 'Tab', 'Space', 'ArrowDown', 'ArrowUp'].includes(
-        step.value,
-      )
+      ![
+        'Enter',
+        'Escape',
+        'Tab',
+        'Space',
+        'ArrowDown',
+        'ArrowUp',
+        'ArrowLeft',
+        'ArrowRight',
+      ].includes(step.value)
     )
       ctx.addIssue({ code: 'custom', message: '不支持此按键' })
     if (
@@ -56,4 +74,5 @@ export type BrowserReport = {
   ok: boolean
   output: string
   completedSteps: number
+  failureKind?: 'application' | 'test' | 'environment' | 'budget'
 }

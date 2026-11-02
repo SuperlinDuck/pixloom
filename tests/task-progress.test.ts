@@ -46,6 +46,39 @@ const render = (
   )
 
 describe('task progress presentation', () => {
+  it.each([
+    ['passed', '所列检查通过'],
+    ['issues', '功能检查发现问题'],
+    ['unverified', '功能尚未验证'],
+  ] as const)(
+    'distinguishes saved generation from %s validation',
+    (status, label) => {
+      const html = render([], 'completed', {
+        agent: {
+          provider: 'gemini',
+          model: 'test',
+          prompt: '待办',
+          steps: 1,
+          toolCalls: 1,
+          buildFailures: 0,
+          responseBytes: 0,
+          reservedOutputTokens: 0,
+          usage: { inputTokens: 0, outputTokens: 0 },
+          startedAt: null,
+          validation: {
+            status,
+            sourceHash: 'hash',
+            completedSteps: 0,
+            totalSteps: 1,
+            message: '仅覆盖本轮所列检查',
+          },
+        },
+      })
+      expect(html).toContain(label)
+      expect(html).toContain('task-state completed')
+      expect(html).toContain('仅覆盖本轮所列检查')
+    },
+  )
   it('hides model turn markers from history and keeps the last meaningful progress', () => {
     const html = render([
       event('模型第 4/100 步 · gemini-3.5-flash', 'model'),

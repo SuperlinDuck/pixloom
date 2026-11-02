@@ -21,6 +21,7 @@ import {
   db,
 } from '../src/lib/store'
 import { templateFiles } from '../src/lib/runtime/template'
+import { storageClientSource } from '../src/lib/storage-client'
 const require = createRequire(import.meta.url)
 async function main() {
   const dist = process.env.PIXLOOM_NEXT_DIST_DIR || '.next'
@@ -111,7 +112,15 @@ async function main() {
     [
       'assets/app.js',
       'text/javascript',
-      `const button=document.querySelector('#count');button.onclick=()=>button.textContent=String(Number(button.textContent)+1);import('${base}assets/lazy.js').then(m=>document.querySelector('#lazy').textContent=m.message)`,
+      `import {storage} from '${base}assets/storage.js';const button=document.querySelector('#count');let count=await storage.get('count',0);button.textContent=count;button.onclick=async()=>{await storage.set('count',count+1);button.textContent=++count};import('${base}assets/lazy.js').then(m=>document.querySelector('#lazy').textContent=m.message)`,
+    ],
+    [
+      'assets/storage.js',
+      'text/javascript',
+      storageClientSource.replaceAll(
+        'import.meta.env.BASE_URL',
+        JSON.stringify(base),
+      ),
     ],
     [
       'assets/lazy.js',
@@ -215,6 +224,7 @@ async function main() {
     const frame = page.frameLocator('iframe')
     await frame.locator('#lazy').waitFor()
     await frame.locator('#count').click()
+    await frame.locator('#count').filter({ hasText: '1' }).waitFor()
     assert.equal(await frame.locator('#count').textContent(), '1')
     await page.waitForFunction(
       () => document.querySelector('iframe')?.contentWindow !== null,
@@ -228,6 +238,37 @@ async function main() {
     )
     const source = await page.locator('iframe').getAttribute('src')
     assert.ok(source?.includes('/_grant/'))
+    await page.reload()
+    await frame.locator('#count').filter({ hasText: '1' }).waitFor()
+    const nextArtifact = randomUUID()
+    db()
+      .prepare('INSERT INTO preview_artifacts VALUES (?,?,?,?,?,?)')
+      .run(
+        nextArtifact,
+        project.id,
+        'next-fixture',
+        'fixture',
+        1000,
+        new Date().toISOString(),
+      )
+    const nextBase = `/api/previews/${nextArtifact}/`
+    for (const [file, type, body] of assets)
+      db()
+        .prepare('INSERT INTO preview_assets VALUES (?,?,?,?)')
+        .run(
+          nextArtifact,
+          file,
+          type,
+          Buffer.from(body.replaceAll(base, nextBase)),
+        )
+    const reopened = await owner.newPage()
+    await reopened.goto(`${origin}/preview/${nextArtifact}`)
+    await reopened
+      .frameLocator('iframe')
+      .locator('#count')
+      .filter({ hasText: '1' })
+      .waitFor()
+    await reopened.close()
     assert.equal(
       (
         await other.request.get(`${origin}/api/projects/${project.id}`)

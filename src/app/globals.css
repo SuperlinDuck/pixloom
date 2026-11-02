@@ -944,6 +944,18 @@ h1 > span {
 .task-state.completed {
   color: #5b5b5b;
 }
+.task-validation {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 11px;
+  color: #68745e;
+}
+.task-validation.issues,
+.task-validation.unverified {
+  color: #9a5b24;
+}
 .task-state.failed {
   color: #b26755;
 }

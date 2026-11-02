@@ -42,6 +42,7 @@ jobs:
           const browser = await chromium.launch({ chromiumSandbox: true })
           await browser.close()
           EOF
+      - run: pnpm browser:verify
       - run: pnpm build
       - run: pnpm invite:verify
       - run: sudo apt-get update && sudo apt-get install -y caddy

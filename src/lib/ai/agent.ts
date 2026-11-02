@@ -1,5 +1,6 @@
 import { withModelBilling } from './billing'
 import { codingAgentPrompt } from './context'
+import { STORAGE_CLIENT_PATH, storageClientSource } from '../storage-client'
 import {
   AgentContextHistory,
   contextInputBudget,
@@ -101,6 +102,7 @@ export async function runCodingAgent(
       (file) =>
         file.path !== 'src/pixloom-cloud.js' &&
         file.path !== 'src/pixloom-schema.json' &&
+        file.path !== STORAGE_CLIENT_PATH &&
         !file.path.startsWith('src/backend/'),
     ),
   ).hash
@@ -109,8 +111,7 @@ export async function runCodingAgent(
       hash: string
       result: AgentBuild
       smoke: BrowserReport
-      behavior: BrowserReport | null
-      testedSteps: BrowserStep[]
+      suites: Map<string, { report: BrowserReport; steps: BrowserStep[] }>
     } | null
   } = {
     built: null,
@@ -132,6 +133,7 @@ export async function runCodingAgent(
             : '自动测试已失败三次，跳过后续浏览器验证；不阻塞版本保存。',
         completedSteps: 0,
         loaded: false,
+        failureKind: 'budget' as const,
       }
       lastOutput = report.output
       addEvent(task, lastOutput, { type: 'validation' })
@@ -170,6 +172,7 @@ export async function runCodingAgent(
         ok: false,
         output: error instanceof Error ? error.message : '浏览器验证异常',
         completedSteps: 0,
+        failureKind: 'environment',
       }
     } finally {
       state.validationDurationMs =
@@ -210,11 +213,13 @@ export async function runCodingAgent(
       cache.built = {
         hash,
         result,
-        smoke: report.loaded
-          ? { ok: true, output: '页面加载检查通过', completedSteps: 0 }
-          : report,
-        behavior: steps.length ? report : null,
-        testedSteps: steps,
+        smoke:
+          steps.length && report.loaded
+            ? { ok: true, output: '页面加载检查通过', completedSteps: 0 }
+            : report,
+        suites: new Map(
+          steps.length ? [[JSON.stringify(steps), { report, steps }]] : [],
+        ),
       }
       return { ok: true, output: lastOutput, validation: report }
     } else {
@@ -255,6 +260,22 @@ export async function runCodingAgent(
       return f.content
     }
     switch (call.name) {
+      case 'storage_enable': {
+        task.candidateFiles = applyOperations(files, [
+          {
+            type: 'write',
+            path: STORAGE_CLIENT_PATH,
+            content: storageClientSource,
+          },
+        ]).files
+        checkpointAgent(task, options.owner)
+        return {
+          ok: true,
+          client: STORAGE_CLIENT_PATH,
+          instruction:
+            '使用 storage.get/set/remove，全部 await。初次读取完成前禁止保存；读取失败显示错误和重试，不要自动覆盖数据。写入确认成功后才清空输入或显示已保存。预览与发布的数据独立，仅同浏览器同站点保留，不支持跨设备同步。',
+        }
+      }
       case 'cloud_test_account':
         return cloudTestAccount(task, { signal: options.signal, check })
       case 'cloud_enable': {
@@ -338,6 +359,7 @@ export async function runCodingAgent(
             (file) =>
               file.path !== 'src/pixloom-cloud.js' &&
               file.path !== 'src/pixloom-schema.json' &&
+              file.path !== STORAGE_CLIENT_PATH &&
               !file.path.startsWith('src/backend/'),
           ),
         ).hash
@@ -362,19 +384,27 @@ export async function runCodingAgent(
           const result = await build(args.steps)
           return result.ok ? result.validation! : result
         }
-        if (cache.built.behavior?.ok) {
+        const suiteKey = JSON.stringify(args.steps)
+        const prior = cache.built.suites.get(suiteKey)
+        if (prior?.report.ok) {
           return {
             ok: true,
             skipped: true,
             completedSteps: 0,
-            testedSteps: cache.built.testedSteps,
+            testedSteps: prior.steps,
             output:
-              '当前源码已通过一轮功能测试，本次步骤未执行。请基于已执行的测试如实总结并结束，不要继续扩测；若发现明确的应用问题，先修复源码再验证。',
+              '当前源码已通过相同测试，本次步骤未执行。请依据已执行用例总结；仅在遗漏明确需求时添加必要用例。',
           }
         }
         const report = await verify(cache.built!.result, args.steps)
-        cache.built!.behavior = report
-        cache.built!.testedSteps = args.steps
+        if (report.loaded)
+          cache.built!.smoke = {
+            ok: true,
+            output: '页面加载检查通过',
+            completedSteps: 0,
+          }
+        if (report.failureKind !== 'budget' || !prior)
+          cache.built!.suites.set(suiteKey, { report, steps: args.steps })
         return report
       }
       default: {
@@ -497,18 +527,51 @@ export async function runCodingAgent(
       }
       check()
       const built = cache.built!
-      const warning =
-        !built.smoke.ok || built.behavior?.ok === false
-          ? '自动测试未通过或未完成，请在预览中检查实际效果。'
-          : !built.behavior
-            ? '尚未进行功能测试，请在预览中检查实际效果。'
-            : ''
+      const suites = Array.from(built.suites.values())
+      const reports = [built.smoke, ...suites.map((suite) => suite.report)]
+      const hasIssues = reports.some(
+        (report) => !report.ok && report.failureKind === 'application',
+      )
+      const incomplete = reports.some((report) => !report.ok)
+      const completedSteps = suites.reduce(
+        (total, suite) => total + suite.report.completedSteps,
+        0,
+      )
+      const totalSteps = suites.reduce(
+        (total, suite) => total + suite.steps.length,
+        0,
+      )
+      const message = hasIssues
+        ? '发现功能问题，版本已保存；请查看失败检查。'
+        : incomplete
+          ? '检查未完成或测试环境异常，功能尚未验证；版本已保存。'
+          : !suites.length
+            ? '页面加载已检查，尚未进行功能测试。'
+            : `本轮所列检查通过（${completedSteps}/${totalSteps} 步），未覆盖的功能仍需验证。`
+      state.validation = {
+        status: hasIssues
+          ? 'issues'
+          : incomplete || !suites.length
+            ? 'unverified'
+            : 'passed',
+        sourceHash: built.hash,
+        completedSteps,
+        totalSteps,
+        message,
+      }
+      checkpointAgent(task, options.owner)
+      const warning = incomplete
+        ? '自动测试未通过或未完成，请在预览中检查实际效果。'
+        : !suites.length
+          ? '尚未进行功能测试，请在预览中检查实际效果。'
+          : ''
       addEvent(task, `构建成功，预览就绪。${warning}`, {
         type: 'ready',
       })
       addEvent(
         task,
         turn.text.slice(0, 4000) +
+          `\n\n验收记录：${message}` +
           (warning ? `\n\n自动测试提示：${warning}` : ''),
         { type: 'reply' },
       )

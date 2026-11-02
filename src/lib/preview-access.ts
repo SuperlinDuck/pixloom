@@ -24,8 +24,17 @@ export function previewGrant(
   existing?: string,
 ) {
   const user = requireArtifactUser(request, artifactId)
+  const storageScope = JSON.stringify([
+    user?.id || 'local',
+    artifactProject(artifactId),
+  ])
   if (!user)
-    return { base: `/api/previews/${artifactId}/`, token: '', expiresAt: null }
+    return {
+      base: `/api/previews/${artifactId}/`,
+      token: '',
+      expiresAt: null,
+      storageScope,
+    }
   return transaction(() => {
     db()
       .prepare('DELETE FROM preview_grants WHERE expiresAt<=?')
@@ -58,6 +67,7 @@ export function previewGrant(
       base: `/api/previews/${artifactId}/_grant/${token}/`,
       token,
       expiresAt,
+      storageScope,
     }
   })
 }

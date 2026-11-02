@@ -1,5 +1,6 @@
 import {
   Check,
+  CircleAlert,
   ChevronRight,
   Cloud,
   FileText,
@@ -37,6 +38,7 @@ const toolLabels = {
   cloud_enable: { label: '配置云端服务', icon: Cloud },
   cloud_schema: { label: '读取数据表结构', icon: Cloud },
   cloud_test_account: { label: '准备测试账号', icon: ListChecks },
+  storage_enable: { label: '配置本地保存', icon: FileText },
 }
 
 function eventPresentation(event: TaskEvent) {
@@ -127,6 +129,7 @@ export function TaskProgress({
   )
   const latest = events[events.length - 1]
   const active = isActive(task)
+  const validation = task.agent?.validation
   return (
     <div className="task-progress">
       <details className="task-process" key={active ? 'active' : 'finished'}>
@@ -143,6 +146,21 @@ export function TaskProgress({
             <Square size={12} />
           )}
           {label}
+          {!active && validation && (
+            <span
+              className={`task-validation ${validation.status}`}
+              title={validation.message}
+            >
+              {validation.status !== 'passed' && (
+                <CircleAlert size={12} aria-hidden="true" />
+              )}
+              {validation.status === 'passed'
+                ? '所列检查通过'
+                : validation.status === 'issues'
+                  ? '功能检查发现问题'
+                  : '功能尚未验证'}
+            </span>
+          )}
           <ChevronRight
             className="task-process-chevron"
             size={13}
