@@ -74,7 +74,17 @@ describe('task progress presentation', () => {
           },
         },
       })
-      expect(html).toContain(label)
+      if (status === 'unverified') {
+        const summary = html.match(/<summary\b[^>]*>[\s\S]*?<\/summary>/)?.[0]
+        expect(summary).not.toContain(label)
+        expect(summary).not.toContain('task-validation')
+        expect(html).toContain(
+          '<p class="task-progress-empty">仅覆盖本轮所列检查</p>',
+        )
+        expect(html).not.toContain('等待新的进展')
+      } else {
+        expect(html).toContain(label)
+      }
       expect(html).toContain('task-state completed')
       expect(html).toContain('仅覆盖本轮所列检查')
     },

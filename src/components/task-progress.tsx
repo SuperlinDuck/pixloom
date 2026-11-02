@@ -146,19 +146,17 @@ export function TaskProgress({
             <Square size={12} />
           )}
           {label}
-          {!active && validation && (
+          {!active && validation && validation.status !== 'unverified' && (
             <span
               className={`task-validation ${validation.status}`}
               title={validation.message}
             >
-              {validation.status !== 'passed' && (
+              {validation.status === 'issues' && (
                 <CircleAlert size={12} aria-hidden="true" />
               )}
               {validation.status === 'passed'
                 ? '所列检查通过'
-                : validation.status === 'issues'
-                  ? '功能检查发现问题'
-                  : '功能尚未验证'}
+                : '功能检查发现问题'}
             </span>
           )}
           <ChevronRight
@@ -168,6 +166,9 @@ export function TaskProgress({
           />
         </summary>
         <div className="process">
+          {!active && validation?.status === 'unverified' && (
+            <p className="task-progress-empty">{validation.message}</p>
+          )}
           {events.length ? (
             <ol aria-label="执行记录">
               {events.map((event, index) => (
@@ -198,9 +199,9 @@ export function TaskProgress({
                 </li>
               ))}
             </ol>
-          ) : (
+          ) : !validation ? (
             <p className="task-progress-empty">等待新的进展…</p>
-          )}
+          ) : null}
         </div>
       </details>
       {task.status === 'queued' && (

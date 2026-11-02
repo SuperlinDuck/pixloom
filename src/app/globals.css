@@ -952,8 +952,7 @@ h1 > span {
   font-size: 11px;
   color: #68745e;
 }
-.task-validation.issues,
-.task-validation.unverified {
+.task-validation.issues {
   color: #9a5b24;
 }
 .task-state.failed {
