@@ -41,6 +41,12 @@ describe('context compression material', () => {
     expect(history.summaryPrompt('需求', [], 0)).not.toContain(
       '决定使用分类筛选',
     )
+    const handoff = history.continuationSummary('先前摘要', [
+      { type: 'tool', id: 'write', name: 'write_file', output: '最后工具结果' },
+    ])
+    expect(handoff.length).toBeLessThanOrEqual(8000)
+    expect(handoff).toContain('先前摘要')
+    expect(handoff).toContain('最后工具结果')
   })
   it('reserves output room and provider headroom, with an explicit override for other models', () => {
     vi.stubEnv('GEMINI_CONTEXT_WINDOW_TOKENS', '')

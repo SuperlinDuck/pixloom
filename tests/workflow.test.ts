@@ -1038,6 +1038,8 @@ describe('coding agent workspace loop', () => {
       'gemini-3.5-flash',
     ])
     expect(fallback.mock.calls[0][0]).toEqual([])
+    expect(result.agent?.contextSummary).toContain('已保留的修改')
+    expect(result.agent?.contextSummary).toContain('"pending"')
     expect(
       result.events.filter((event) => event.tool === 'write_file'),
     ).toHaveLength(1)

@@ -496,6 +496,20 @@ export async function runCodingAgent(
       )
         throw error
       check()
+      const prompt = context.continuationPrompt(
+        codingAgentPrompt(task),
+        inputs,
+        contextInputBudget(
+          'gemini',
+          'gemini-3.5-flash',
+          AGENT_LIMITS.outputTokensPerCall,
+        ),
+      )
+      // Keep a bounded, redacted handoff for later compaction or Worker recovery.
+      state.contextSummary = redactTestCredentials(
+        task.id,
+        context.continuationSummary(state.contextSummary || '', inputs),
+      )
       // Persist the choice before any fallback call, including its billing.
       // Unknown usage from the timed-out request keeps its ledger reservation.
       state.model = 'gemini-3.5-flash'
@@ -503,17 +517,7 @@ export async function runCodingAgent(
       checkpointAgent(task, options.owner)
       // Start a fresh native session; never replay another model's signatures
       // or orphaned tool responses. Carry only public development records.
-      session = createSession(
-        context.continuationPrompt(
-          codingAgentPrompt(task),
-          inputs,
-          contextInputBudget(
-            state.provider,
-            state.model,
-            AGENT_LIMITS.outputTokensPerCall,
-          ),
-        ),
-      )
+      session = createSession(prompt)
       context = new AgentContextHistory()
       inputs = []
       addEvent(
