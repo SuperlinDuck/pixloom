@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import type { TaskEvent, TaskSummary } from '@/lib/types'
 import { isActive } from '@/lib/types'
+import { isInternalModelMessage } from '@/lib/task-events'
 import { MarkdownReply } from './markdown-reply'
 
 // Hide internal setup messages that were recorded by older tasks.
@@ -117,7 +118,7 @@ export function TaskProgress({
             reply.message.startsWith(`${event.message}\n\n自动测试提示：`)
           : task.agent &&
             task.status === 'completed' &&
-            !event.message.startsWith('模型第 ')),
+            !isInternalModelMessage(event.message)),
     )
   const events = task.events.filter(
     (event) =>
@@ -125,7 +126,7 @@ export function TaskProgress({
       event !== finalModel &&
       event.message.trim() &&
       !(!event.type && internalSetupMessages.has(event.message.trim())) &&
-      !/^模型第\s*\d+\s*\/\s*\d+\s*步(?:\s|·|$)/.test(event.message.trim()),
+      !isInternalModelMessage(event.message),
   )
   const latest = events[events.length - 1]
   const active = isActive(task)
