@@ -876,6 +876,16 @@ function WorkspaceSession({
       )
         return
     }
+    if (action === 'rollback') {
+      const release = publication.releases.find((item) => item.id === releaseId)
+      if (
+        !release ||
+        !(await ask(
+          `确认回滚到 v${release.versionNumber}？线上应用将切换为此次发布的版本，当前草稿和开发版本不受影响。`,
+        ))
+      )
+        return
+    }
     await perform(async () => {
       await publicationRequest({
         action,
@@ -1882,50 +1892,74 @@ function WorkspaceSession({
                       发布和回滚记录会显示在这里。
                     </p>
                   )}
-                  {publication?.releases.map((release) => (
-                    <div className="release-item" key={release.id}>
-                      <div>
-                        <strong>
-                          v{release.versionNumber} ·{' '}
-                          {release.action === 'rollback'
-                            ? '回滚'
-                            : release.action === 'unpublish'
-                              ? '下线'
-                              : '发布'}
-                        </strong>
-                        <span>
-                          {
-                            {
-                              queued: '排队中',
-                              staging: '正在暂存',
-                              verifying: '正在验证',
-                              published: '发布就绪',
-                              unpublished: '已下线',
-                              failed: '失败',
-                              cancelled: '已取消',
-                            }[release.status]
-                          }
-                          {publication.live?.id === release.id && ' · 当前线上'}
-                        </span>
+                  {publication?.releases.map((release) => {
+                    const live = publication.live?.id === release.id
+                    const publishing = [
+                      'queued',
+                      'staging',
+                      'verifying',
+                    ].includes(release.status)
+                    const status = live
+                      ? '当前线上'
+                      : {
+                          queued: '发布中',
+                          staging: '发布中',
+                          verifying: '发布中',
+                          published: null,
+                          unpublished: '已下线',
+                          failed: '失败',
+                          cancelled: '已取消',
+                        }[release.status]
+                    return (
+                      <div className="release-item" key={release.id}>
+                        <div className="release-summary">
+                          <strong>
+                            {release.action === 'rollback'
+                              ? '回滚至'
+                              : release.action === 'unpublish'
+                                ? '下线'
+                                : '发布至'}{' '}
+                            v{release.versionNumber}
+                          </strong>
+                          <time>{time(release.createdAt)}</time>
+                        </div>
+                        <div className="release-actions">
+                          {status && (
+                            <span
+                              className={`release-status release-status-${live ? 'live' : publishing ? 'pending' : release.status}`}
+                              role="status"
+                            >
+                              {status}
+                            </span>
+                          )}
+                          {release.status === 'published' &&
+                            !(
+                              publication.live?.versionId ===
+                                release.versionId &&
+                              publication.live?.artifactId ===
+                                release.artifactId
+                            ) && (
+                              <button
+                                className="release-rollback"
+                                disabled={
+                                  busy ||
+                                  !!active ||
+                                  !ready ||
+                                  !publication.enabled
+                                }
+                                aria-haspopup="dialog"
+                                onClick={() =>
+                                  void publish('rollback', release.id)
+                                }
+                              >
+                                回滚
+                              </button>
+                            )}
+                        </div>
+                        {release.error && <p role="alert">{release.error}</p>}
                       </div>
-                      <time>{time(release.createdAt)}</time>
-                      {release.error && <p role="alert">{release.error}</p>}
-                      {release.status === 'published' &&
-                        !(
-                          publication.live?.versionId === release.versionId &&
-                          publication.live?.artifactId === release.artifactId
-                        ) && (
-                          <button
-                            disabled={
-                              busy || !!active || !ready || !publication.enabled
-                            }
-                            onClick={() => void publish('rollback', release.id)}
-                          >
-                            回滚到此次发布
-                          </button>
-                        )}
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
               {historyOpen && (
