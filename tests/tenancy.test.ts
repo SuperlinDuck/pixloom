@@ -42,6 +42,7 @@ import {
   withModelBilling,
 } from '../src/lib/ai/billing'
 import { geminiProvider, openaiProvider } from '../src/lib/ai/provider'
+import { runCodingAgent } from '../src/lib/ai/agent'
 import { templateFiles } from '../src/lib/runtime/template'
 import { previewGrant } from '../src/lib/preview-access'
 import { reapEnvironments } from '../src/lib/runtime/lifecycle'
@@ -669,6 +670,127 @@ describe('metering at the upstream request boundary', () => {
         .prepare('SELECT status FROM usage_ledger WHERE taskId=?')
         .all(task.id),
     ).toMatchObject([{ status: 'reserved' }])
+  })
+
+  it('keeps timed-out 3.8 usage reserved and bills successful fallback calls as 3.5', async () => {
+    const { task } = await agentTask()
+    task.agent!.provider = 'gemini'
+    task.agent!.model = 'gemini-3.8-flash'
+    vi.useFakeTimers()
+    vi.stubEnv('GEMINI_API_KEY', 'fake')
+    vi.stubEnv('PIXLOOM_MODEL_REQUEST_TIMEOUT_MS', '1000')
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () =>
+              reject(init.signal.reason),
+            )
+          }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: 'STOP',
+                content: {
+                  role: 'model',
+                  parts: [
+                    {
+                      functionCall: {
+                        id: 'list',
+                        name: 'list_files',
+                        args: {},
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+            usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 10 },
+          }),
+        ),
+      )
+    vi.stubGlobal('fetch', fetcher)
+    const done = new Error('stop after checking fallback billing')
+    const provider = {
+      createSession: (
+        request: Parameters<typeof geminiProvider.createSession>[0],
+      ) => {
+        const session = geminiProvider.createSession(request)
+        let called = false
+        return {
+          ...session,
+          next: (
+            inputs: Parameters<typeof session.next>[0],
+            allocation: number,
+          ) => {
+            if (called) return Promise.reject(done)
+            called = true
+            return session.next(inputs, allocation)
+          },
+        }
+      },
+    }
+    const pending = expect(
+      runCodingAgent(task, {
+        provider,
+        signal: new AbortController().signal,
+        active: () => true,
+        build: vi.fn(),
+        verify: vi.fn(),
+      }),
+    ).rejects.toBe(done)
+    await vi.advanceTimersByTimeAsync(1000)
+    await pending
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher.mock.calls[0][0]).toContain('gemini-3.8-flash')
+    expect(fetcher.mock.calls[1][0]).toContain('gemini-3.5-flash')
+    expect(
+      db()
+        .prepare(
+          'SELECT model,status,inputTokens,outputTokens FROM usage_ledger WHERE taskId=? ORDER BY rowid',
+        )
+        .all(task.id),
+    ).toMatchObject([
+      {
+        model: 'gemini-3.8-flash',
+        status: 'reserved',
+        inputTokens: null,
+        outputTokens: null,
+      },
+      {
+        model: 'gemini-3.5-flash',
+        status: 'settled',
+        inputTokens: 50,
+        outputTokens: 10,
+      },
+    ])
+    expect(getTask(task.id).agent?.model).toBe('gemini-3.5-flash')
+  })
+
+  it('keeps a queued concurrent request billed to its original model after the task switches', async () => {
+    const { task } = await agentTask()
+    task.agent!.provider = 'gemini'
+    task.agent!.model = 'gemini-3.8-flash'
+    let resume!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      resume = resolve
+    })
+    const pending = withModelBilling(task, async () => {
+      await waiting
+      return reserveModelCall('queued title request', 100)
+    })
+    task.agent!.model = 'gemini-3.5-flash'
+    resume()
+    await pending
+    expect(
+      db()
+        .prepare('SELECT model FROM usage_ledger WHERE taskId=?')
+        .all(task.id),
+    ).toMatchObject([{ model: 'gemini-3.8-flash' }])
   })
 })
 

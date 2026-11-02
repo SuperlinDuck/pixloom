@@ -585,6 +585,7 @@ describe('operation timeout and storage limits', () => {
 
 // Exercise the real task/attempt/transaction pipeline with deterministic model turns.
 import type { ModelProvider, ModelTurn } from '../src/lib/ai/provider'
+import { ModelRequestTimeoutError } from '../src/lib/ai/provider'
 import type { AgentInput, ToolCall } from '../src/lib/ai/tools'
 import { POST as agentPOST } from '../src/app/api/projects/[id]/tasks/route'
 import { POST as retryPOST } from '../src/app/api/tasks/[id]/retry/route'
@@ -994,6 +995,122 @@ describe('conversation-first creation', () => {
 })
 
 describe('coding agent workspace loop', () => {
+  it('switches only this task to 3.5 after timeout, preserving candidate edits and pending tool results', async () => {
+    const project = newProject()
+    const task = queueAgent(project.id)
+    const content =
+      'export default function App(){return <h1>已保留的修改</h1>}'
+    const primary = vi
+      .fn()
+      .mockResolvedValueOnce(
+        turn([call('write_file', { path: 'src/App.jsx', content })]),
+      )
+      .mockRejectedValueOnce(new ModelRequestTimeoutError(30000))
+    const fallback = vi
+      .fn()
+      .mockResolvedValueOnce(turn([call('read_file', { path: 'src/App.jsx' })]))
+      .mockResolvedValueOnce(turn([], '完成'))
+    const createSession = vi.fn<ModelProvider['createSession']>(
+      ({ model, prompt }) => {
+        if (model === 'gemini-3.5-flash') {
+          expect(getTask(task.id).agent?.model).toBe(model)
+          expect(prompt).toContain('创建待办应用')
+          expect(prompt).toContain('已保留的修改')
+          expect(prompt).toContain('"pending"')
+          expect(
+            task.candidateFiles.find((file) => file.path === 'src/App.jsx')
+              ?.content,
+          ).toBe(content)
+        }
+        return { next: model === 'gemini-3.8-flash' ? primary : fallback }
+      },
+    )
+    const result = await agentRun(task, fakeRuntime(), { createSession })
+    expect(result.status).toBe('completed')
+    expect(result.agent).toMatchObject({
+      model: 'gemini-3.5-flash',
+      steps: 4,
+      toolCalls: 2,
+      reservedOutputTokens: 0,
+    })
+    expect(createSession.mock.calls.map(([request]) => request.model)).toEqual([
+      'gemini-3.8-flash',
+      'gemini-3.5-flash',
+    ])
+    expect(fallback.mock.calls[0][0]).toEqual([])
+    expect(result.agent?.contextSummary).toContain('已保留的修改')
+    expect(result.agent?.contextSummary).toContain('"pending"')
+    expect(
+      result.events.filter((event) => event.tool === 'write_file'),
+    ).toHaveLength(1)
+    expect(
+      result.events.some((event) => event.message.includes('本轮对话已切换')),
+    ).toBe(true)
+    expect(queueAgent(project.id, '下一轮修改').agent?.model).toBe(
+      'gemini-3.8-flash',
+    )
+  })
+
+  it('also recovers a timed-out context summary into a fresh 3.5 coding session', async () => {
+    const task = queueAgent(newProject().id)
+    const createSession = vi.fn<ModelProvider['createSession']>(
+      ({ model, tools }) => {
+        if (tools === false)
+          return {
+            next: vi
+              .fn()
+              .mockRejectedValue(new ModelRequestTimeoutError(30000)),
+          }
+        if (model === 'gemini-3.5-flash')
+          return {
+            next: vi.fn(async (inputs, allocation) => {
+              expect(inputs).toEqual([])
+              expect(allocation).toBe(AGENT_LIMITS.outputTokensPerCall)
+              return turn([], '完成')
+            }),
+          }
+        return {
+          next: vi.fn(async () => turn([call('list_files')])),
+          needsCompaction: (inputs) => inputs.length > 0,
+        }
+      },
+    )
+    const result = await agentRun(task, fakeRuntime(), { createSession })
+    expect(result.status).toBe('completed')
+    expect(result.agent).toMatchObject({
+      model: 'gemini-3.5-flash',
+      steps: 3,
+      reservedOutputTokens: 0,
+    })
+    expect(createSession).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([
+    'fallback-timeout',
+    'permission',
+    'cancelled',
+    'openai',
+    'custom-model',
+  ])('does not loop or switch on an ineligible failure: %s', async (kind) => {
+    const task = queueAgent(newProject().id)
+    if (kind === 'openai') task.agent!.provider = 'openai'
+    if (kind === 'custom-model') task.agent!.model = 'custom-model'
+    const createSession = vi.fn<ModelProvider['createSession']>(() => ({
+      next: async () => {
+        if (kind === 'cancelled') cancelTask(task.id)
+        if (kind === 'permission') throw new Error('模型访问被拒绝')
+        throw new ModelRequestTimeoutError(30000)
+      },
+    }))
+    const result = await agentRun(task, fakeRuntime(), { createSession })
+    expect(result.status).toBe(kind === 'cancelled' ? 'cancelled' : 'failed')
+    expect(createSession).toHaveBeenCalledTimes(
+      kind === 'fallback-timeout' ? 2 : 1,
+    )
+    if (kind === 'fallback-timeout')
+      expect(result.agent?.model).toBe('gemini-3.5-flash')
+  })
+
   it('persists model waiting progress, reports timeout and ignores late progress after failure', async () => {
     const project = newProject()
     const task = queueAgent(project.id)

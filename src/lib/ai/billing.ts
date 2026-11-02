@@ -3,24 +3,38 @@ import { randomUUID } from 'node:crypto'
 import { db, getTask, StoreError, transaction } from '../store'
 import { assertAiAvailable, ownerOf, usageSummary } from '../tenancy'
 import { modelWeights } from '../platform-config'
-import type { Task, Usage } from '../types'
+import type { AgentState, Task, Usage } from '../types'
 
-const billing = new AsyncLocalStorage<Task>()
+const billing = new AsyncLocalStorage<{
+  task: Task
+  model: Pick<AgentState, 'provider' | 'model'> | null
+}>()
 export const withModelBilling = <T>(task: Task, operation: () => Promise<T>) =>
-  billing.run(task, operation)
+  billing.run(
+    {
+      task,
+      // A queued title request may outlive the main task's model switch.
+      model: task.agent
+        ? { provider: task.agent.provider, model: task.agent.model }
+        : null,
+    },
+    operation,
+  )
 // Reserve once per HTTP attempt, including retries. Unknown outcomes keep their reservation.
 export function reserveModelCall(payload: string, maxOutput: number) {
-  const task = billing.getStore()
-  if (!task?.agent) return undefined
+  const context = billing.getStore()
+  if (!context?.model) return undefined
+  const { task, model } = context
   const userId = ownerOf(task.projectId)
   // Unowned local fixture/developer workspaces have no account billing.
   if (!userId && process.env.NODE_ENV !== 'production') return undefined
   if (!userId) throw new StoreError('任务缺少用户归属，拒绝模型调用', 403)
   const input = Buffer.byteLength(payload) // conservative byte bound for replayed history + tool schemas
   const output = maxOutput
-  const weight = modelWeights()[
-    `${task.agent.provider}:${task.agent.model}`
-  ] || { input: 1, output: 4 }
+  const weight = modelWeights()[`${model.provider}:${model.model}`] || {
+    input: 1,
+    output: 4,
+  }
   const credits = input * weight.input + output * weight.output
   return transaction(() => {
     const current = getTask(task.id)
@@ -41,8 +55,8 @@ export function reserveModelCall(payload: string, maxOutput: number) {
         id,
         task.id,
         userId,
-        task.agent!.provider,
-        task.agent!.model,
+        model.provider,
+        model.model,
         new Date().toISOString().slice(0, 10),
         input,
         output,
