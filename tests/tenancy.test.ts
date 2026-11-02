@@ -749,6 +749,21 @@ describe('private preview capabilities and runtime recycling', () => {
       ).status,
     ).toBe(404)
     const grant = previewGrant(request(alice.session), artifact)
+    expect(grant.storageScope).toBe(JSON.stringify([alice.id, project.id]))
+    const nextArtifact = randomUUID()
+    db()
+      .prepare('INSERT INTO preview_artifacts VALUES (?,?,?,?,?,?)')
+      .run(
+        nextArtifact,
+        project.id,
+        'next-hash',
+        'template',
+        0,
+        new Date().toISOString(),
+      )
+    expect(
+      previewGrant(request(alice.session), nextArtifact).storageScope,
+    ).toBe(grant.storageScope)
     const path = ['_grant', grant.token, 'index.html']
     const response = await assetGET(request(), {
       params: { artifactId: artifact, path },

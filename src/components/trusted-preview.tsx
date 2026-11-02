@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { installPreviewAuthBridge } from '@/lib/cloud/preview-bridge'
+import { installPreviewStorageBridge } from '@/lib/preview-storage'
 
 export function TrustedPreview({
   artifactId,
@@ -41,15 +42,31 @@ export function TrustedPreview({
         if (!response.ok) throw new Error(data.error || '预览加载失败')
         if (!active || !frame.current) return
         setError('')
-        if (!dispose)
-          dispose = installPreviewAuthBridge(
+        if (!dispose) {
+          const nonce = crypto.randomUUID()
+          const stopStorage = installPreviewStorageBridge(
+            frame.current,
+            data.storageScope,
+            nonce,
+          )
+          const stopAuth = installPreviewAuthBridge(
             frame.current,
             artifactId,
             data.base,
+            nonce,
           )
+          dispose = () => {
+            stopStorage()
+            stopAuth()
+          }
+        }
         token = data.token || undefined
       } catch (error) {
-        if (active) setError((error as Error).message)
+        if (active) {
+          dispose?.()
+          dispose = undefined
+          setError((error as Error).message)
+        }
       } finally {
         renewing = false
       }

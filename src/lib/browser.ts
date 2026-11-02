@@ -14,6 +14,7 @@ import {
 } from './browser-schema'
 import type { BuildAsset } from './types'
 import { installPreviewAuthBridge } from './cloud/preview-bridge'
+import { installPreviewStorageBridge } from './preview-storage'
 import { browserAuth } from './cloud/browser-auth'
 import { storageFailureSummary } from './cloud/shared-storage'
 
@@ -34,10 +35,28 @@ export type BrowserVerifier = (
 ) => Promise<BrowserReport>
 
 async function perform(
+  page: Page,
   frame: FrameLocator,
   step: BrowserStep,
   timeout: number,
 ) {
+  if (step.action === 'reload' || step.action === 'reopen') {
+    if (step.action === 'reopen') await page.reload({ waitUntil: 'load' })
+    else
+      await Promise.all([
+        page.waitForEvent('framenavigated', {
+          predicate: (candidate) =>
+            candidate.parentFrame() === page.mainFrame(),
+          timeout,
+        }),
+        page.locator('iframe').evaluate((element) => {
+          const iframe = element as HTMLIFrameElement
+          iframe.src = iframe.src
+        }),
+      ])
+    await frame.locator('#root').waitFor({ state: 'visible' })
+    return
+  }
   let target = frame.locator(step.selector)
   if (step.action === 'click' && step.value.trim()) {
     // Treat the supplied label as literal text, never as a selector or regex.
@@ -69,6 +88,9 @@ async function perform(
         switch (step.action) {
           case 'assert_text':
             ok = (await target.innerText()).includes(step.value)
+            break
+          case 'assert_text_equals':
+            ok = (await target.innerText()).trim() === step.value
             break
           case 'assert_count':
             ok = (await target.count()) === Number(step.value)
@@ -151,7 +173,12 @@ export const verifyBrowser: BrowserVerifier = async (
   }
   let completedSteps = 0
   const errors: string[] = []
-  const record = (message: string) => {
+  let failureKind: BrowserReport['failureKind']
+  const record = (
+    message: string,
+    kind: BrowserReport['failureKind'] = 'application',
+  ) => {
+    if (!failureKind || kind === 'application') failureKind = kind
     if (errors.length < 12) errors.push(message.slice(0, 1200))
   }
   const recordCloudFailure = (status: number, body: Buffer) => {
@@ -165,7 +192,10 @@ export const verifyBrowser: BrowserVerifier = async (
   }
   const deadline = setTimeout(
     () => {
-      record(`浏览器验证超过 ${verificationTimeout / 1000} 秒时限`)
+      record(
+        `浏览器验证超过 ${verificationTimeout / 1000} 秒时限`,
+        'environment',
+      )
       abort()
     },
     Math.max(1, verificationTimeout - (Date.now() - startedAt)),
@@ -181,7 +211,6 @@ export const verifyBrowser: BrowserVerifier = async (
     context.setDefaultTimeout(stepTimeout)
     await context.routeWebSocket('**/*', (socket) => socket.close())
     let page: Page
-    let bootstrapped = false
     await context.route('**/*', async (route) => {
       const request = route.request()
       const url = new URL(request.url())
@@ -280,18 +309,13 @@ export const verifyBrowser: BrowserVerifier = async (
         record('阻止了候选页面的外部请求或非 GET 请求')
         return route.abort()
       }
-      if (
-        url.href === wrapper &&
-        !bootstrapped &&
-        request.frame() === page.mainFrame()
-      ) {
-        bootstrapped = true
+      if (url.href === wrapper && request.frame() === page.mainFrame()) {
         return route.fulfill({
           contentType: 'text/html',
           headers: {
             'Content-Security-Policy': `default-src 'none'; frame-src ${origin}; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src ${origin}/api/previews/${artifactId}/ ${origin}/api/app-auth/${artifactId}/`,
           },
-          body: `<iframe title="候选预览" sandbox="allow-scripts" style="width:100%;height:760px;border:0" ${cloud?.format === 'pixloom-cloud-v2' && cloud.authMode === 'persistent-v1' ? '' : `src="${prefix}index.html"`}></iframe>${cloud?.format === 'pixloom-cloud-v2' && cloud.authMode === 'persistent-v1' ? `<script>const __name=(value)=>value;(${installPreviewAuthBridge.toString()})(document.querySelector('iframe'),${JSON.stringify(artifactId)})</script>` : ''}`,
+          body: `<iframe title="候选预览" sandbox="allow-scripts" style="width:100%;height:760px;border:0"></iframe><script>const __name=(value)=>value;const frame=document.querySelector('iframe');const nonce=crypto.randomUUID();(${installPreviewStorageBridge.toString()})(frame,${JSON.stringify('verification:' + artifactId)},nonce);(${installPreviewAuthBridge.toString()})(frame,${JSON.stringify(artifactId)},${JSON.stringify(prefix)},nonce)</script>`,
         })
       }
       const asset = url.pathname.startsWith(prefix)
@@ -344,7 +368,7 @@ export const verifyBrowser: BrowserVerifier = async (
     if (!errors.length && !closing) options?.onLoaded?.()
     for (const step of steps) {
       signal.throwIfAborted()
-      await perform(frame, step, stepTimeout)
+      await perform(page, frame, step, stepTimeout)
       completedSteps++
     }
     await page.waitForTimeout(150)
@@ -354,9 +378,10 @@ export const verifyBrowser: BrowserVerifier = async (
     if (message.includes('strict mode violation')) {
       record(
         `第 ${completedSteps + 1} 步的选择器匹配了多个元素。click 可用 value 指定完整按钮文字；其他动作请使用唯一 id、data-testid 或容器范围（例如 .modal-body select）。:nth-of-type(1) 按各自父元素计数，并不表示整个页面的第一个匹配项。请检查剩余步骤中的同类选择器并一起修复，不要任意取第一个元素。`,
+        'test',
       )
     }
-    record(message)
+    record(message, message.startsWith('断言失败：') ? 'application' : 'test')
   } finally {
     closing = true
     clearTimeout(deadline)
@@ -367,6 +392,7 @@ export const verifyBrowser: BrowserVerifier = async (
   return {
     ok: errors.length === 0,
     completedSteps,
+    ...(errors.length ? { failureKind } : {}),
     output: errors.length
       ? `浏览器验证失败（完成 ${completedSteps}/${steps.length} 步）：\n${errors.join('\n')}`
       : `浏览器验证通过：页面加载无异常${completedSteps ? `，${completedSteps} 个行为步骤通过` : ''}`,

@@ -42,6 +42,13 @@ export type AgentState = {
   usage: Usage
   startedAt: number | null
   contextSummary?: string
+  validation?: {
+    status: 'passed' | 'issues' | 'unverified'
+    sourceHash: string
+    completedSteps: number
+    totalSteps: number
+    message: string
+  }
 }
 export type TaskKind =
   | 'agent'

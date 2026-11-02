@@ -611,6 +611,107 @@ function scripted(...turns: ModelTurn[]) {
   const provider: ModelProvider = { createSession: vi.fn(() => ({ next })) }
   return { provider, next }
 }
+describe('local persistence installation and non-blocking acceptance', () => {
+  it('installs the browser-local SDK without enabling Cloud', async () => {
+    const project = newProject()
+    const model = scripted(turn([call('storage_enable')]), turn([], '完成'))
+    const result = await agentRun(
+      queueAgent(project.id),
+      fakeRuntime(),
+      model.provider,
+    )
+    expect(result.status).toBe('completed')
+    expect(
+      getVersion(project.id, result.resultVersionId!).files,
+    ).toContainEqual(
+      expect.objectContaining({ path: 'src/pixloom-storage.js' }),
+    )
+    expect(
+      db()
+        .prepare('SELECT count(*) AS n FROM cloud_bindings WHERE projectId=?')
+        .get(project.id),
+    ).toMatchObject({ n: 0 })
+    expect(result.agent?.validation?.status).toBe('unverified')
+  })
+
+  it('keeps known application failures visible when an unrelated suite passes and still saves the version', async () => {
+    const project = newProject()
+    vi.mocked(verifyBrowser)
+      .mockResolvedValueOnce({
+        ok: false,
+        output: '断言失败：任务重开后丢失',
+        completedSteps: 1,
+        failureKind: 'application',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        output: '标题检查通过',
+        completedSteps: 1,
+      })
+    const model = scripted(
+      turn([
+        call('browser_test', {
+          steps: [{ action: 'assert_count', selector: 'li', value: '4' }],
+        }),
+      ]),
+      turn([
+        call('browser_test', {
+          steps: [{ action: 'assert_text', selector: 'h1', value: '待办' }],
+        }),
+      ]),
+      turn([], '生成结束'),
+    )
+    const result = await agentRun(
+      queueAgent(project.id),
+      fakeRuntime(),
+      model.provider,
+    )
+    expect(result.status).toBe('completed')
+    expect(result.error).toBeNull()
+    expect(result.agent?.validation).toMatchObject({
+      status: 'issues',
+      totalSteps: 2,
+    })
+    expect(result.agent?.validation?.sourceHash).toBe(
+      getVersion(project.id, result.resultVersionId!).hash,
+    )
+    expect(
+      result.events.find((event) => event.type === 'reply')?.message,
+    ).toContain('发现功能问题')
+    expect(verifyBrowser).toHaveBeenCalledTimes(2)
+  })
+
+  it('marks selector errors as unverified, without increasing build failures or losing the preview', async () => {
+    const project = newProject()
+    vi.mocked(verifyBrowser).mockResolvedValueOnce({
+      ok: false,
+      output: '选择器错误',
+      completedSteps: 0,
+      failureKind: 'test',
+    })
+    const model = scripted(
+      turn([
+        call('browser_test', {
+          steps: [
+            { action: 'assert_visible', selector: '#missing', value: '' },
+          ],
+        }),
+      ]),
+      turn([], '生成结束'),
+    )
+    const result = await agentRun(
+      queueAgent(project.id),
+      fakeRuntime(),
+      model.provider,
+    )
+    expect(result.status).toBe('completed')
+    expect(result.agent).toMatchObject({
+      buildFailures: 0,
+      validation: { status: 'unverified' },
+    })
+    expect(result.resultVersionId).toBeTruthy()
+  })
+})
 function queueAgent(projectId: string, prompt = '创建待办应用') {
   const detail = getProject(projectId)
   enqueueTask(
@@ -793,7 +894,8 @@ describe('conversation-first creation', () => {
       expect(task.events).toContainEqual(
         expect.objectContaining({
           type: 'reply',
-          message: '已创建待办应用，可以在预览中使用。',
+          message:
+            expect.stringContaining('已创建待办应用，可以在预览中使用。'),
         }),
       )
       expect(getProject(project.id).versions).toMatchObject([
@@ -1073,7 +1175,7 @@ describe('coding agent workspace loop', () => {
     expect(verifyBrowser).toHaveBeenCalledTimes(1)
   })
 
-  it('reuses successful checks and builds for unchanged source instead of expanding tests', async () => {
+  it('reuses identical suites but executes missing-requirement suites without rebuilding unchanged source', async () => {
     const project = newProject(),
       runtime = fakeRuntime()
     const test = (text: string) =>
@@ -1086,15 +1188,16 @@ describe('coding agent workspace loop', () => {
     const model = scripted(
       turn([test('first')]),
       turn([call('build'), test('extra')]),
+      turn([test('first')]),
       turn([], '完成'),
     )
     expect(
       (await agentRun(queueAgent(project.id), runtime, model.provider)).status,
     ).toBe('completed')
     expect(runtime.execute).toHaveBeenCalledTimes(1)
-    expect(verifyBrowser).toHaveBeenCalledTimes(1)
+    expect(verifyBrowser).toHaveBeenCalledTimes(2)
     const skipped = JSON.parse(
-      (model.next.mock.calls[2][0][1] as Extract<AgentInput, { type: 'tool' }>)
+      (model.next.mock.calls[3][0][0] as Extract<AgentInput, { type: 'tool' }>)
         .output,
     )
     expect(skipped).toMatchObject({ skipped: true, completedSteps: 0 })
@@ -1490,7 +1593,10 @@ describe('coding agent workspace loop', () => {
     )
     expect(verifyBrowser).toHaveBeenCalledTimes(2)
     expect(getTask(task.id).events).toContainEqual(
-      expect.objectContaining({ type: 'reply', message: '完成' }),
+      expect.objectContaining({
+        type: 'reply',
+        message: expect.stringContaining('完成'),
+      }),
     )
     expect(getTask(task.id).events).not.toContainEqual(
       expect.objectContaining({ type: 'model', message: '完成' }),
