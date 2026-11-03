@@ -1202,6 +1202,15 @@ h1 > span {
   font-size: 12px;
   line-height: 2;
 }
+.workspace-loading {
+  min-height: calc(100dvh - 60px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #7b7b7b;
+  font-size: 13px;
+}
 .loading-message {
   display: flex;
   align-items: center;

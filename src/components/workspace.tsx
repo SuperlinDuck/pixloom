@@ -206,6 +206,9 @@ function WorkspaceSession({
   )
   const projectId = canAccess ? route.projectId : null
   const selected = canAccess ? route.versionId : null
+  // A pending session does not turn a direct project URL into the home page.
+  const loadingProject = account.loading && !!route.projectId
+  const showProject = !!projectId || loadingProject
   const diffOpen = route.tab === 'diff'
   const tab = diffOpen
     ? 'code'
@@ -1043,7 +1046,7 @@ function WorkspaceSession({
     })
   return (
     <div
-      className={`app-shell ${projectId ? 'has-project' : ''} ${menu ? 'navigation-open' : ''}`}
+      className={`app-shell ${showProject ? 'has-project' : ''} ${menu ? 'navigation-open' : ''}`}
     >
       {menu && (
         <button
@@ -1104,7 +1107,7 @@ function WorkspaceSession({
         </div>
       </aside>
       <main className="main">
-        {projectId && (
+        {showProject && (
           <header className="topbar">
             <div className="breadcrumb">
               <button
@@ -1159,11 +1162,9 @@ function WorkspaceSession({
               ) : (
                 <>
                   <strong>
-                    {projectId
-                      ? detail?.project.name ||
-                        projects.find((p) => p.id === projectId)?.name ||
-                        '正在载入…'
-                      : '新对话'}
+                    {detail?.project.name ||
+                      projects.find((p) => p.id === projectId)?.name ||
+                      '正在载入…'}
                   </strong>
                   {projectId && detail && (
                     <button
@@ -1183,7 +1184,12 @@ function WorkspaceSession({
             </div>
           </header>
         )}
-        {!projectId ? (
+        {loadingProject ? (
+          <div className="workspace-loading" role="status">
+            <Loader2 className="spin" size={18} aria-hidden="true" />
+            正在载入项目…
+          </div>
+        ) : !projectId ? (
           <div className="landing">
             <button
               className="icon-button mobile-menu landing-menu"

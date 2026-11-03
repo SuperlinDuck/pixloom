@@ -365,7 +365,74 @@ async function main() {
       [`pixloom-v3-project:${alice.id}`, project.id],
     )
     const projectPath = `/projects/${project.id}`
-    const projectResponse = await page.goto(`${origin}${projectPath}/code`)
+    await page.addInitScript(() => {
+      const state = window as Window & { landingFlashed?: boolean }
+      state.landingFlashed = false
+      new MutationObserver((records) => {
+        if (
+          document.querySelector('.landing') ||
+          records.some((record) =>
+            Array.from(record.addedNodes).some(
+              (node) =>
+                node instanceof Element &&
+                (node.matches('.landing') || node.querySelector('.landing')),
+            ),
+          )
+        )
+          state.landingFlashed = true
+      }).observe(document, { childList: true, subtree: true })
+    })
+    // Hold the session response to cover SSR and hydration on a slow connection.
+    const verifyProjectOpening = async (reload: boolean, suffix = '') => {
+      await page.waitForLoadState('networkidle')
+      let releaseSession!: () => void
+      const sessionGate = new Promise<void>((resolve) => {
+        releaseSession = resolve
+      })
+      let sessionRequested!: () => void
+      const sessionStarted = new Promise<void>((resolve) => {
+        sessionRequested = resolve
+      })
+      const sessionPattern = '**/api/auth/session'
+      await page.route(sessionPattern, async (route) => {
+        sessionRequested()
+        await sessionGate
+        await route.continue()
+      })
+      let projectRequests = 0
+      const onRequest = (request: { url(): string }) => {
+        if (new URL(request.url()).pathname.startsWith('/api/projects'))
+          projectRequests++
+      }
+      page.on('request', onRequest)
+      try {
+        const response = reload
+          ? await page.reload()
+          : await page.goto(`${origin}${projectPath}${suffix}`)
+        assert.doesNotMatch(await response!.text(), /class="landing"/)
+        await sessionStarted
+        await page.locator('.workspace-loading').waitFor()
+        assert.equal(await page.locator('.landing').count(), 0)
+        assert.equal(projectRequests, 0)
+        releaseSession()
+        await page.locator('.workbench').waitFor()
+        assert.equal(
+          await page.evaluate(
+            () =>
+              (window as Window & { landingFlashed?: boolean }).landingFlashed,
+          ),
+          false,
+        )
+        return response!
+      } finally {
+        releaseSession()
+        await page.unrouteAll({ behavior: 'wait' })
+        page.off('request', onRequest)
+      }
+    }
+    const projectResponse = await verifyProjectOpening(false)
+    await verifyProjectOpening(true)
+    await verifyProjectOpening(false, '/code')
     assert.equal(projectResponse!.status(), 200)
     assert.equal(projectResponse!.headers()['x-frame-options'], 'DENY')
     for (const invalidPath of [
@@ -588,7 +655,7 @@ async function main() {
     )
     assert.deepEqual(pageErrors, [])
     console.log(
-      'PASS 真实生产 Web + Chromium：项目/视图/历史版本路由、刷新与前进后退、未保存编辑保护、旧 Cloud 链接兼容、邀请码激活与首次对话创建、两用户隔离、私有预览交互、额度耗尽后手工构建、退出撤销资源凭证。',
+      'PASS 真实生产 Web + Chromium：慢会话下直达项目与刷新无首页闪现、项目/视图/历史版本路由、刷新与前进后退、未保存编辑保护、旧 Cloud 链接兼容、邀请码激活与首次对话创建、两用户隔离、私有预览交互、额度耗尽后手工构建、退出撤销资源凭证。',
     )
   } catch (error) {
     const page = browser?.contexts()[0]?.pages()[0]
